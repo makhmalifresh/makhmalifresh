@@ -78,7 +78,7 @@ router.get('/settings/store-status', async (req, res) => {
 
     // If the setting does not exist, create it with a default value of 'true'
     if (result.rows.length === 0) {
-      // console.log("Store setting not found, creating a default one.");
+      console.log("Store setting not found, creating a default one.");
       await pool.query(
         "INSERT INTO store_settings (setting_key, setting_value) VALUES ('is_store_open', 'true')"
       );
@@ -119,6 +119,162 @@ router.put('/settings/store-status', async (req, res) => {
   }
 });
 
+
+// --- NEW: Platform Fee Management (Admin Only) ---
+
+// GET the current platform fee
+router.get('/settings/platform-fee', async (req, res) => {
+  try {
+    const result = await pool.query("SELECT setting_value FROM store_settings WHERE setting_key = 'platform_fee'");
+    if (result.rows.length === 0) {
+      return res.json({ setting_key: 'platform_fee', setting_value: '0' }); // Default to 0 if not set
+    }
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error('Error fetching platform fee:', error);
+    res.status(500).json({ error: 'Failed to fetch platform fee' });
+  }
+});
+
+// SET the platform fee (using UPSERT for robustness)
+router.put('/settings/platform-fee', async (req, res) => {
+  const { fee } = req.body;
+  const feeValue = parseInt(fee, 10);
+
+  if (isNaN(feeValue) || feeValue < 0) {
+    return res.status(400).json({ error: 'Platform fee must be a non-negative number.' });
+  }
+
+  try {
+    const query = `
+      INSERT INTO store_settings (setting_key, setting_value)
+      VALUES ('platform_fee', $1)
+      ON CONFLICT (setting_key) 
+      DO UPDATE SET setting_value = EXCLUDED.setting_value
+      RETURNING setting_key, setting_value;
+    `;
+    const result = await pool.query(query, [feeValue.toString()]);
+    res.json({
+      message: 'Platform fee updated successfully.',
+      setting: result.rows[0]
+    });
+  } catch (error) {
+    console.error('Error updating platform fee:', error);
+    res.status(500).json({ error: 'Failed to update platform fee' });
+  }
+});
+
+
+// --- NEW: SURGE Fee Management (Admin Only) ---
+
+// GET the current surge fee
+router.get('/settings/surge-fee', async (req, res) => {
+  try {
+    const result = await pool.query("SELECT setting_value FROM store_settings WHERE setting_key = 'surge_fee'");
+    if (result.rows.length === 0) {
+      return res.json({ setting_key: 'surge_fee', setting_value: '0' }); // Default to 0 if not set
+    }
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error('Error fetching surge fee:', error);
+    res.status(500).json({ error: 'Failed to fetch surge fee' });
+  }
+});
+
+// SET the surge fee (using UPSERT for robustness)
+router.put('/settings/surge-fee', async (req, res) => {
+  const { surge } = req.body;
+  const surgeValue = parseInt(surge, 10);
+
+  if (isNaN(surgeValue) || surgeValue < 0) {
+    return res.status(400).json({ error: 'Surge fee must be a non-negative number.' });
+  }
+
+  try {
+    const query = `
+      INSERT INTO store_settings (setting_key, setting_value)
+      VALUES ('surge_fee', $1)
+      ON CONFLICT (setting_key) 
+      DO UPDATE SET setting_value = EXCLUDED.setting_value
+      RETURNING setting_key, setting_value;
+    `;
+    const result = await pool.query(query, [surgeValue.toString()]);
+    res.json({
+      message: 'Surge fee updated successfully.',
+      setting: result.rows[0]
+    });
+  } catch (error) {
+    console.error('Error updating surge fee:', error);
+    res.status(500).json({ error: 'Failed to update surge fee' });
+  }
+});
+
+
+// In src/api/routes/admin.js
+
+// ... (after your existing product management routes)
+
+// --- NEW: Offer Management (Admin Only) ---
+
+// GET all existing offers
+router.get('/offers', async (req, res) => {
+  try {
+    const result = await pool.query('SELECT * FROM offers ORDER BY created_at DESC');
+    res.json(result.rows);
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch offers' });
+  }
+});
+
+// GET coupons that are NOT yet assigned to an offer
+router.get('/unassigned-coupons', async (req, res) => {
+    try {
+        const query = `
+            SELECT code FROM coupons 
+            WHERE is_active = true AND code NOT IN (SELECT coupon_code FROM offers)
+            ORDER BY code ASC;
+        `;
+        const result = await pool.query(query);
+        res.json(result.rows);
+    } catch (error) {
+        res.status(500).json({ error: 'Failed to fetch unassigned coupons' });
+    }
+});
+
+// CREATE a new offer
+router.post('/offers', async (req, res) => {
+  const { name, description, coupon_code } = req.body;
+  if (!name || !description || !coupon_code) {
+    return res.status(400).json({ error: 'All fields are required.' });
+  }
+  try {
+    const query = `
+      INSERT INTO offers (name, description, coupon_code) 
+      VALUES ($1, $2, $3) RETURNING *`;
+    const result = await pool.query(query, [name, description, coupon_code]);
+    res.status(201).json(result.rows[0]);
+  } catch (error) {
+    if (error.code === '23505') { // Unique key violation
+        return res.status(409).json({ error: 'This coupon is already used in another offer.' });
+    }
+    res.status(500).json({ error: 'Failed to create offer' });
+  }
+});
+
+// DELETE an offer
+router.delete('/offers/:id', async (req, res) => {
+    const { id } = req.params;
+    try {
+        await pool.query('DELETE FROM offers WHERE id = $1', [id]);
+        res.status(200).json({ message: 'Offer deleted successfully.' });
+    } catch (error) {
+        res.status(500).json({ error: 'Failed to delete offer' });
+    }
+});
+
+
+// ... (rest of your admin routes)
+
 // --- Coupon Management (CRUD) ---
 
 // GET all coupons
@@ -139,7 +295,7 @@ router.post('/coupons', async (req, res) => {
   const { code, discount_type, discount_value } = req.body;
 
   // --- Step 1: Add detailed logging to see what the server is receiving ---
-  // console.log('Received request to create coupon with data:', req.body);
+  console.log('Received request to create coupon with data:', req.body);
 
   if (!code || !discount_type || !discount_value) {
     return res.status(400).json({ error: 'All fields are required.' });
@@ -289,11 +445,43 @@ router.put('/products/:id/toggle-availability', async (req, res) => {
 
 
 
+
+
 // --- Order Management (Placeholders from before) ---
-router.get('/orders', (req, res) => {
-  // Logic to get all orders will go here
-  res.json({ message: 'Fetched all orders (placeholder)' });
+// In src/api/routes/admin.js
+
+// --- Order Management ---
+
+// This replaces your old placeholder route.
+router.get('/orders', async (req, res) => {
+  try {
+    const queryStr = `
+      SELECT 
+        o.*, 
+        d.tracking_url,
+        (
+          SELECT json_agg(json_build_object(
+            'name', p.name, 
+            'qty', oi.qty, 
+            'price', oi.price
+          ))
+          FROM order_items oi
+          JOIN products p ON oi.product_id = p.id
+          WHERE oi.order_id = o.id
+        ) as items
+      FROM orders o
+      LEFT JOIN deliveries d ON o.id = d.order_id
+      ORDER BY o.created_at DESC;
+    `;
+    const result = await pool.query(queryStr);
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Error fetching orders for admin:', error);
+    res.status(500).json({ error: 'Failed to fetch orders' });
+  }
 });
+
+// ... (rest of your admin routes)
 router.post('/orders/:orderId/cancel', (req, res) => {
   // Logic to cancel an order will go here
   res.json({ message: `Order ${req.params.orderId} cancelled (placeholder)` });

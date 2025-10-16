@@ -145,46 +145,61 @@ app.get("/api/settings/store-status", async (req, res) => {
 });
 
 
-// Checkout: create local order
-// app.post("/api/cart/checkout", async (req, res) => {
-//   const { cart, address, payMethod, subtotal } = req.body;
-
-//   try {
-//     const order = await query(
-//       `INSERT INTO orders (customer_name, phone, address_line1, area, city, pincode, pay_method, subtotal, status)
-//        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'CREATED') RETURNING *`,
-//       [
-//         address.name,
-//         address.phone,
-//         address.line1,
-//         address.area,
-//         address.city,
-//         address.pincode,
-//         payMethod,
-//         subtotal,
-//       ]
-//     );
-
-//     const orderId = order[0].id;
-
-//     for (const item of cart) {
-//       await query(
-//         `INSERT INTO order_items (order_id, product_id, qty, price)
-//          VALUES ($1,$2,$3,$4)`,
-//         [orderId, item.id, item.qty, item.price]
-//       );
-//     }
-
-//     res.json({ id: orderId });
-//   } catch (e) {
-//     console.error(e);
-//     res.status(500).json({ error: "Checkout failed" });
-//   }
-// });
+// --- NEW: Public endpoint for customers to get the platform fee ---
+app.get("/api/settings/platform-fee", async (req, res) => {
+  try {
+    const result = await query("SELECT setting_value FROM store_settings WHERE setting_key = 'platform_fee'");
+    if (result.length === 0) {
+      return res.json({ setting_key: 'platform_fee', setting_value: '0' });
+    }
+    res.json(result[0]);
+  } catch (e) {
+    console.error("Error fetching public platform fee:", e);
+    res.status(500).json({ setting_key: 'platform_fee', setting_value: '0' });
+  }
+});
 
 
-// server.js
+// --- NEW: Public endpoint for customers to get the platform fee ---
+app.get("/api/settings/surge-fee", async (req, res) => {
+  try {
+    const result = await query("SELECT setting_value FROM store_settings WHERE setting_key = 'surge_fee'");
+    if (result.length === 0) {
+      return res.json({ setting_key: 'surge_fee', setting_value: '0' });
+    }
+    res.json(result[0]);
+  } catch (e) {
+    console.error("Error fetching public surge fee:", e);
+    res.status(500).json({ setting_key: 'surge_fee', setting_value: '0' });
+  }
+});
 
+
+
+
+
+//OFFER MANAGEMENT SYSTEM
+
+// In server.js
+
+// ... (after your other public routes like /api/settings/store-status)
+
+// --- NEW: Public endpoint for customers to get active offers for the marquee ---
+app.get("/api/offers/active", async (req, res) => {
+  try {
+    const result = await query(
+      "SELECT name, description, coupon_code FROM offers WHERE is_active = true ORDER BY created_at DESC"
+    );
+    res.json(result);
+  } catch (e) {
+    console.error("Error fetching active offers:", e);
+    res.status(500).json({ error: "Failed to fetch offers." });
+  }
+});
+
+// ... (rest of server.js)
+
+//COUPON CODE MANAGEMENT
 
 app.post("/api/cart/validate-coupon", async (req, res) => {
   const { coupon_code, subtotal } = req.body;
@@ -239,19 +254,19 @@ app.post("/api/cart/validate-coupon", async (req, res) => {
 // --- THIS IS THE CORRECTED CHECKOUT ENDPOINT ---
 app.post("/api/cart/checkout", async (req, res) => {
   // Now accepts the full breakdown of the order
-  const { cart, address, payMethod, subtotal, delivery_fee, discount_amount, grand_total } = req.body;
+  const { cart, address, payMethod, subtotal, delivery_fee, discount_amount, grand_total, platform_fee, surge_fee } = req.body;
 
   try {
     // CORRECTED: The query now has a $12 placeholder for the 'status' column.
     const orderQuery = `
-      INSERT INTO orders (customer_name, phone, address_line1, area, city, pincode, pay_method, subtotal, delivery_fee, discount_amount, grand_total, status)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) 
+      INSERT INTO orders (customer_name, phone, address_line1, area, city, pincode, pay_method, subtotal, delivery_fee, discount_amount, grand_total, platform_fee, surge_fee, status)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) 
       RETURNING *`;
       
     // CORRECTED: The parameters array now includes the 12th value for the status.
     const orderParams = [
         address.name, address.phone, address.line1, address.area, address.city, address.pincode,
-        payMethod, subtotal, delivery_fee, discount_amount, grand_total, 'CREATED'
+        payMethod, subtotal, delivery_fee, discount_amount, grand_total, platform_fee, surge_fee, 'CREATED'
     ];
 
     const order = await query(orderQuery, orderParams);
@@ -289,20 +304,21 @@ app.post("/api/borzo/create-order", async (req, res) => {
       matter,
       vehicle_type_id: 8, // bike
       is_contact_person_notification_enabled: true,
+      is_client_notification_enabled: true,
       points: [
         {
-          address: "Thane, Mumbai",
+          address: "Makhmali The Fresh Meat Store, Shop No. 1, Mutton Chicken Centre, New Makhmali, Lal Bahadur Shastri Marg, opp. makhmali Talao, Thane, Maharashtra 400601",
           contact_person: {
-            phone: "+91-9999999999",
-            name: "Vendor",
+            phone: "919867777860",
+            name: "Shoaib Qureshi",
           },
         },
         {
           address: `${address.line1}, ${address.area}, ${address.city} ${address.pincode}`,
           contact_person: {
             phone: address.phone.startsWith("+91")
-              ? address.phone
-              : `+91${address.phone}`,
+              ? `91${address.phone}`
+              : `91${address.phone}`,
             name: address.name,
           },
           client_order_id: orderId.toString(),
@@ -312,17 +328,16 @@ app.post("/api/borzo/create-order", async (req, res) => {
     };
 
     const { data } = await borzo.post("/create-order", payload);
-
-    if (data.order_id) {
+    if (data.order?.order_id) {
       await query(
         `INSERT INTO deliveries (order_id, porter_task_id, status, tracking_url, eta)
          VALUES ($1,$2,$3,$4,$5)`,
         [
           orderId,
-          data.order_id,
-          data.status,
-          data.tracking_url || null,
-          data.payment_time || null,
+          data.order?.order_id,
+          data.order?.status,
+          data.order?.points?.[1]?.tracking_url || null,
+          data.order?.created_datetime || null,
         ]
       );
     }
@@ -349,12 +364,13 @@ app.post("/api/borzo/create-cod-order", async (req, res) => {
       matter,
       vehicle_type_id: 8, // bike
       is_contact_person_notification_enabled: true,
+      is_client_notification_enabled: true,
       points: [
         {
-          address: "Thane, Mumbai",
+          address: "Makhmali The Fresh Meat Store, Shop No. 1, Mutton Chicken Centre, New Makhmali, Lal Bahadur Shastri Marg, opp. makhmali Talao, Thane, Maharashtra 400601",
           contact_person: {
-            phone: "+91-9999999999",
-            name: "Vendor",
+            phone: "919867777860",
+            name: "Shoaib Qureshi",
           },
         },
         {
@@ -363,8 +379,8 @@ app.post("/api/borzo/create-cod-order", async (req, res) => {
           taking_amount: parseFloat(taking_amount),
           contact_person: {
             phone: address.phone.startsWith("+91")
-              ? address.phone
-              : `+91${address.phone}`,
+              ? `91${address.phone}`
+              : `91${address.phone}`,
             name: address.name,
           },
           client_order_id: orderId.toString(),
@@ -375,16 +391,16 @@ app.post("/api/borzo/create-cod-order", async (req, res) => {
 
     const { data } = await borzo.post("/create-order", payload);
 
-    if (data.order_id) {
+    if (data.order?.order_id) {
       await query(
         `INSERT INTO deliveries (order_id, porter_task_id, status, tracking_url, eta)
          VALUES ($1,$2,$3,$4,$5)`,
         [
           orderId,
-          data.order_id,
-          data.status,
-          data.tracking_url || null,
-          data.payment_time || null,
+          data.order?.order_id,
+          data.order?.status,
+          data.order?.points?.[1]?.tracking_url || null,
+          data.order?.created_datetime || null,
         ]
       );
     }
@@ -457,7 +473,7 @@ app.post("/api/borzo/calculate-fee", async (req, res) => {
     const payload = {
       vehicle_type_id: 8, // bike
       points: [
-        { address: "Thane, Mumbai" }, // Your fixed pickup address
+        { address: "Makhmali The Fresh Meat Store, Shop No. 1, Mutton Chicken Centre, New Makhmali, Lal Bahadur Shastri Marg, opp. makhmali Talao, Thane, Maharashtra 400601" }, // Your fixed pickup address
         { address: `${address.line1}, ${address.area}, ${address.city}, ${address.pincode}` }
       ]
     };
@@ -498,6 +514,7 @@ app.use(express.static(path.join(__dirname, "frontend/dist")));
 app.use((req, res) => {
   res.sendFile(path.join(__dirname, "frontend/dist", "index.html"));
 });
+
 // ---------------------------
 // Start server
 // ---------------------------

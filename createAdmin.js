@@ -1,11 +1,15 @@
+// This is a one-time-use script to securely create your first admin user.
+// Run it from your terminal like this:
+// ADMIN_EMAIL="your-email@example.com" ADMIN_PASSWORD="your-strong-password" node src/scripts/seed_admin.js
+
 import { hash } from 'bcrypt';
 import { Pool } from 'pg';
 // require('dotenv').config();
 import dotenv from 'dotenv'
 dotenv.config();
 // --- Configuration ---
-const ADMIN_EMAIL = 'ENTER YOUR EMAIL';
-const ADMIN_PASSWORD = 'ENTER YOUR PASSWORD';
+const ADMIN_EMAIL = 'admin@makhmali.com';
+const ADMIN_PASSWORD = 'password123makhmali';
 const SALT_ROUNDS = 12; // A strong salt round value for bcrypt
 
 // --- Database Connection ---
