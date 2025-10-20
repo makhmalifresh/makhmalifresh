@@ -60,6 +60,7 @@ async function query(q, params) {
 
 
 
+
 //RAZORPAY ROUTES
 
 app.post("/api/payment/create-order", async (req, res) => {
@@ -266,7 +267,7 @@ app.post("/api/cart/checkout", async (req, res) => {
     // CORRECTED: The parameters array now includes the 12th value for the status.
     const orderParams = [
         address.name, address.phone, address.line1, address.area, address.city, address.pincode,
-        payMethod, subtotal, delivery_fee, discount_amount, grand_total, platform_fee, surge_fee, 'CREATED'
+        payMethod, Math.round(subtotal), Math.round(delivery_fee), Math.round(discount_amount), Math.round(grand_total), Math.round(platform_fee), Math.round(surge_fee), 'CREATED'
     ];
 
     const order = await query(orderQuery, orderParams);
@@ -291,17 +292,107 @@ app.post("/api/cart/checkout", async (req, res) => {
 });
 
 
+// Borzo: calculate delivery fee
+app.post("/api/borzo/calculate-fee", async (req, res) => {
+  const { address, items } = req.body;
+
+  if (!address || !address.line1 || !address.city || !address.pincode) {
+    return res.status(400).json({ error: "A complete address is required." });
+  }
+
+  try {
+    // This is the correct, simpler payload for calculating a fee.
+    // It does not need 'matter', 'contact_person', or 'items'.
+    const matter = items.map((i) => `${i.qty}x ${i.name}${i.weight ? ` (${i.weight}g)` : ''}`).join(", ");
+
+    // --- NEW: Calculate the total weight in kilograms ---
+    const totalWeightGrams = items.reduce((sum, item) => {
+        // Ensure weight and qty are numbers, default to 0 if not
+        const weight = Number(item.weight) || 0;
+        const qty = Number(item.qty) || 0;
+        return sum + (weight * qty);
+    }, 0);
+    // Convert grams to kilograms for the API
+    const total_weight_kg = totalWeightGrams / 1000;
+    const payload = {
+      type: "standard",
+      matter,
+      total_weight_kg,
+      vehicle_type_id: 8, // bike
+      is_contact_person_notification_enabled: true,
+      is_client_notification_enabled: true,
+      points: [
+        {
+          address: "Makhmali The Fresh Meat Store, Shop No. 1, Mutton Chicken Centre, New Makhmali, Lal Bahadur Shastri Marg, opp. makhmali Talao, Thane, Maharashtra 400601",
+          contact_person: {
+            phone: "919867777860",
+            name: "Shoaib Qureshi",
+          },
+        },
+        {
+          address: `${address.line1}, ${address.area}, ${address.city} ${address.pincode}`,
+          contact_person: {
+            phone: address.phone.startsWith("+91")
+              ? `91${address.phone}`
+              : `91${address.phone}`,
+            name: address.name,
+          },
+          note: address.note || null,
+        },
+      ],
+      payment_method: "balance"
+    };
+
+
+    // console.log("Sending payload to Borzo for price calculation:", payload);
+
+    // The endpoint is /calculate-order
+    const { data } = await borzo.post("/calculate-order", payload);
+
+    // console.log("Received full response from Borzo:", JSON.stringify(data, null, 2));
+
+    const paymentAmountString = data?.order?.payment_amount;
+
+    const paymentAmount = parseFloat(paymentAmountString);
+
+    if (isNaN(paymentAmount)) {
+      console.error("Borzo response did not contain a valid payment_amount.");
+      const errorMessage = data?.parameter_errors?.points?.[1]?.address?.[0] || "Could not calculate fee for this address.";
+      return res.status(400).json({ error: errorMessage });
+    }
+
+    res.json({ delivery_fee: paymentAmount });
+
+  } catch (e) {
+    console.error("Borzo fee calculation error:", e.response?.data || e.message);
+    res.status(500).json({ error: "Failed to calculate delivery fee." });
+  }
+});
+
+
+
 // ... (the rest of your server.js file)
 // Borzo: normal order create delivery order with razorpay
 app.post("/api/borzo/create-order", async (req, res) => {
   const { orderId, address, items } = req.body;
+  
 
   try {
-    const matter = items.map((i) => `${i.qty}x ${i.name}`).join(", ");
+    const matter = items.map((i) => `${i.qty}x ${i.name}${i.weight ? ` (${i.weight}g)` : ''}`).join(", ");
 
+    // --- NEW: Calculate the total weight in kilograms ---
+    const totalWeightGrams = items.reduce((sum, item) => {
+        // Ensure weight and qty are numbers, default to 0 if not
+        const weight = Number(item.weight) || 0;
+        const qty = Number(item.qty) || 0;
+        return sum + (weight * qty);
+    }, 0);
+    // Convert grams to kilograms for the API
+    const total_weight_kg = totalWeightGrams / 1000;
     const payload = {
       type: "standard",
       matter,
+      total_weight_kg,
       vehicle_type_id: 8, // bike
       is_contact_person_notification_enabled: true,
       is_client_notification_enabled: true,
@@ -325,6 +416,7 @@ app.post("/api/borzo/create-order", async (req, res) => {
           note: address.note || null,
         },
       ],
+      payment_method: "balance"
     };
 
     const { data } = await borzo.post("/create-order", payload);
@@ -458,50 +550,6 @@ app.get("/api/borzo/courier/:orderId", async (req, res) => {
 // server.js
 
 // ... (after other public routes)
-
-// Borzo: calculate delivery fee
-app.post("/api/borzo/calculate-fee", async (req, res) => {
-  const { address } = req.body;
-
-  if (!address || !address.line1 || !address.city || !address.pincode) {
-    return res.status(400).json({ error: "A complete address is required." });
-  }
-
-  try {
-    // This is the correct, simpler payload for calculating a fee.
-    // It does not need 'matter', 'contact_person', or 'items'.
-    const payload = {
-      vehicle_type_id: 8, // bike
-      points: [
-        { address: "Makhmali The Fresh Meat Store, Shop No. 1, Mutton Chicken Centre, New Makhmali, Lal Bahadur Shastri Marg, opp. makhmali Talao, Thane, Maharashtra 400601" }, // Your fixed pickup address
-        { address: `${address.line1}, ${address.area}, ${address.city}, ${address.pincode}` }
-      ]
-    };
-
-    // console.log("Sending payload to Borzo for price calculation:", payload);
-
-    // The endpoint is /calculate-order
-    const { data } = await borzo.post("/calculate-order", payload);
-
-    // console.log("Received full response from Borzo:", JSON.stringify(data, null, 2));
-
-    const paymentAmountString = data?.order?.payment_amount;
-
-    const paymentAmount = parseFloat(paymentAmountString);
-
-    if (isNaN(paymentAmount)) {
-      console.error("Borzo response did not contain a valid payment_amount.");
-      const errorMessage = data?.parameter_errors?.points?.[1]?.address?.[0] || "Could not calculate fee for this address.";
-      return res.status(400).json({ error: errorMessage });
-    }
-
-    res.json({ delivery_fee: paymentAmount });
-
-  } catch (e) {
-    console.error("Borzo fee calculation error:", e.response?.data || e.message);
-    res.status(500).json({ error: "Failed to calculate delivery fee." });
-  }
-});
 
 
 
