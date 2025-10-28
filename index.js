@@ -46,6 +46,15 @@ const borzo = axios.create({
   },
 });
 
+
+const whatsapp = axios.create({
+  baseURL: "https://graph.facebook.com/v22.0/811413942060929",
+  headers: {
+    "Authorization": `Bearer ${process.env.WHATSAPP_API_KEY}`,
+    "Content-Type": "application/json"
+  }
+})
+
 // ---------------------------
 // Helpers
 // ---------------------------
@@ -80,9 +89,9 @@ app.post("/api/payment/create-order", async (req, res) => {
     }
     // Send back the order details and your key_id to the frontend
     res.json({
-        orderId: razorpayOrder.id,
-        keyId: process.env.RAZORPAY_KEY_ID,
-        amount: razorpayOrder.amount
+      orderId: razorpayOrder.id,
+      keyId: process.env.RAZORPAY_KEY_ID,
+      amount: razorpayOrder.amount
     });
   } catch (error) {
     console.error("Razorpay order creation error:", error);
@@ -95,20 +104,20 @@ app.post("/api/payment/create-order", async (req, res) => {
 // This is a CRITICAL security step. The frontend sends the payment signature,
 // and the backend verifies it to confirm the payment is legitimate.
 app.post("/api/payment/verify", async (req, res) => {
-    const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body;
-    
-    // This is the logic provided by Razorpay to verify the signature
-    const shasum = crypto.createHmac('sha256', process.env.RAZORPAY_KEY_SECRET);
-    shasum.update(`${razorpay_order_id}|${razorpay_payment_id}`);
-    const digest = shasum.digest('hex');
+  const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body;
 
-    if (digest === razorpay_signature) {
-        // Payment is legitimate
-        res.json({ status: 'success', orderId: razorpay_order_id, paymentId: razorpay_payment_id });
-    } else {
-        // Payment is fraudulent or failed
-        res.status(400).json({ status: 'failure', message: 'Payment verification failed.' });
-    }
+  // This is the logic provided by Razorpay to verify the signature
+  const shasum = crypto.createHmac('sha256', process.env.RAZORPAY_KEY_SECRET);
+  shasum.update(`${razorpay_order_id}|${razorpay_payment_id}`);
+  const digest = shasum.digest('hex');
+
+  if (digest === razorpay_signature) {
+    // Payment is legitimate
+    res.json({ status: 'success', orderId: razorpay_order_id, paymentId: razorpay_payment_id });
+  } else {
+    // Payment is fraudulent or failed
+    res.status(400).json({ status: 'failure', message: 'Payment verification failed.' });
+  }
 });
 
 
@@ -263,11 +272,11 @@ app.post("/api/cart/checkout", async (req, res) => {
       INSERT INTO orders (customer_name, phone, address_line1, area, city, pincode, pay_method, subtotal, delivery_fee, discount_amount, grand_total, platform_fee, surge_fee, status)
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) 
       RETURNING *`;
-      
+
     // CORRECTED: The parameters array now includes the 12th value for the status.
     const orderParams = [
-        address.name, address.phone, address.line1, address.area, address.city, address.pincode,
-        payMethod, Math.round(subtotal), Math.round(delivery_fee), Math.round(discount_amount), Math.round(grand_total), Math.round(platform_fee), Math.round(surge_fee), 'CREATED'
+      address.name, address.phone, address.line1, address.area, address.city, address.pincode,
+      payMethod, Math.round(subtotal), Math.round(delivery_fee), Math.round(discount_amount), Math.round(grand_total), Math.round(platform_fee), Math.round(surge_fee), 'CREATED'
     ];
 
     const order = await query(orderQuery, orderParams);
@@ -286,7 +295,7 @@ app.post("/api/cart/checkout", async (req, res) => {
     res.json({ id: orderId });
   } catch (e) {
     // IMPROVED: This will now log the specific database error for easier debugging.
-    console.error("Checkout database error:", e.detail || e.message); 
+    console.error("Checkout database error:", e.detail || e.message);
     res.status(500).json({ error: "Checkout failed due to a database error." });
   }
 });
@@ -307,10 +316,10 @@ app.post("/api/borzo/calculate-fee", async (req, res) => {
 
     // --- NEW: Calculate the total weight in kilograms ---
     const totalWeightGrams = items.reduce((sum, item) => {
-        // Ensure weight and qty are numbers, default to 0 if not
-        const weight = Number(item.weight) || 0;
-        const qty = Number(item.qty) || 0;
-        return sum + (weight * qty);
+      // Ensure weight and qty are numbers, default to 0 if not
+      const weight = Number(item.weight) || 0;
+      const qty = Number(item.qty) || 0;
+      return sum + (weight * qty);
     }, 0);
     // Convert grams to kilograms for the API
     const total_weight_kg = totalWeightGrams / 1000;
@@ -375,17 +384,17 @@ app.post("/api/borzo/calculate-fee", async (req, res) => {
 // Borzo: normal order create delivery order with razorpay
 app.post("/api/borzo/create-order", async (req, res) => {
   const { orderId, address, items } = req.body;
-  
+
 
   try {
     const matter = items.map((i) => `${i.qty}x ${i.name}${i.weight ? ` (${i.weight}g)` : ''}`).join(", ");
 
     // --- NEW: Calculate the total weight in kilograms ---
     const totalWeightGrams = items.reduce((sum, item) => {
-        // Ensure weight and qty are numbers, default to 0 if not
-        const weight = Number(item.weight) || 0;
-        const qty = Number(item.qty) || 0;
-        return sum + (weight * qty);
+      // Ensure weight and qty are numbers, default to 0 if not
+      const weight = Number(item.weight) || 0;
+      const qty = Number(item.qty) || 0;
+      return sum + (weight * qty);
     }, 0);
     // Convert grams to kilograms for the API
     const total_weight_kg = totalWeightGrams / 1000;
@@ -408,7 +417,7 @@ app.post("/api/borzo/create-order", async (req, res) => {
           address: `${address.line1}, ${address.area}, ${address.city} ${address.pincode}`,
           contact_person: {
             phone: address.phone.startsWith("+91")
-              ? `91${address.phone}`
+              ? `91${address.phone.slice(3)}`
               : `91${address.phone}`,
             name: address.name,
           },
@@ -419,7 +428,106 @@ app.post("/api/borzo/create-order", async (req, res) => {
       payment_method: "balance"
     };
 
+
     const { data } = await borzo.post("/create-order", payload);
+    // console.log(data)
+    let stat = ""
+
+    if (data.order?.status == "new"){
+      stat = "Confirmed"
+    }else{
+      stat = "Pending"
+    }
+// const address //TODO
+        const msg_to_owner_payload = {
+  "messaging_product": "whatsapp",
+  "recipient_type": "individual",
+  "to": "919867777860",
+  "type": "text",
+  "text": {
+    "preview_url": true,
+    "body": 
+
+`Makhmali Fresh recieved an order
+
+*==Order Details==*
+*Order ID: ${data.order?.order_id}*
+*Name:* ${address.name}
+*Address:* ${address.line1} ${address.area} ${address.city} ${address.pincode}
+*Phone:* ${address.phone}
+*Product Description:* ${matter}
+
+To track the order please click:
+${data.order?.points?.[1]?.tracking_url}
+`
+  }
+}
+
+        const msg_to_employee_payload = {
+  "messaging_product": "whatsapp",
+  "recipient_type": "individual",
+  "to": "918779121361",
+  "type": "text",
+  "text": {
+    "preview_url": true,
+    "body": 
+
+`Makhmali Fresh recieved an order
+
+Order Details:
+*Order ID: ${data.order?.order_id}*
+*Name:* ${address.name}
+*Address:* ${address.line1} ${address.area} ${address.city} ${address.pincode}
+*Phone:* ${address.phone}
+*Product Description:* ${matter}
+
+To track the order please click:
+${data.order?.points?.[1]?.tracking_url}`
+  }
+}
+
+let cus_number = "+919321561224";
+
+if (address.phone.startsWith("+91")){
+  cus_number = `91${address.phone.slice(3)}`
+}else{
+  cus_number = `91${address.phone}`
+}
+// console.log(cus_number);
+
+const msg_to_customer_payload = {
+    "messaging_product": "whatsapp",
+    "recipient_type": "individual",
+    "to": `${cus_number}`,
+    "type": "template",
+    "template": {
+        "name": "order_created",
+        "language": {
+            "code": "en"
+        },
+        "components": [
+            {
+                "type": "body",
+                "parameters": [
+                    {
+                        "type": "text",
+                        "text": `${matter}`
+                    },
+                    {
+                        "type": "text",
+                        "text": `${stat}`
+                    },
+                    {
+                        "type": "text",
+                        "text": `${data.order?.points?.[1]?.tracking_url}`
+                    }
+                ]
+            }
+        ]
+    }
+}
+
+
     if (data.order?.order_id) {
       await query(
         `INSERT INTO deliveries (order_id, porter_task_id, status, tracking_url, eta)
@@ -428,13 +536,23 @@ app.post("/api/borzo/create-order", async (req, res) => {
           orderId,
           data.order?.order_id,
           data.order?.status,
-          data.order?.points?.[1]?.tracking_url || null,
+          data.order?.points?.[2]?.tracking_url || null,
           data.order?.created_datetime || null,
         ]
       );
+
     }
 
-    res.json(data);
+
+    const { ownerdata: send_msg_to_owner } = await whatsapp.post("/messages", msg_to_owner_payload);
+    const { employeedata: send_msg_to_employee } = await whatsapp.post("/messages", msg_to_employee_payload);
+    const { customerdata: send_msg_to_customer } = await whatsapp.post("/messages", msg_to_customer_payload);
+
+    // res.json(data);
+    const responses = res.json({ success: true, order: data.order });
+    return responses;
+    
+
   } catch (e) {
     console.error("Borzo error:", e.response?.data || e.message);
     res
