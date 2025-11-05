@@ -3,12 +3,21 @@ import "dotenv/config";
 
 const { Pool } = pkg;
 
-// This is the single, centralized connection pool
+// This is your single, centralized connection pool
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: {
     rejectUnauthorized: false
   }
+});
+
+// --- THIS IS THE DEFINITIVE FIX ---
+// This code listens for idle connection errors in the background.
+// If NeonDB terminates a connection, this will log the error
+// but IT WILL NOT CRASH YOUR SERVER.
+pool.on('error', (err, client) => {
+  console.error('Database pool idle client error:', err.message, err.stack);
+  // We do not exit the process. The pool will handle this.
 });
 
 /**
@@ -18,8 +27,12 @@ const pool = new Pool({
  * @returns {Array} The rows from the database
  */
 export const query = async (q, params) => {
+  const start = Date.now();
   try {
     const { rows } = await pool.query(q, params);
+    const duration = Date.now() - start;
+    // This log is helpful for debugging query performance
+    // console.log('Executed query', { duration: `${duration}ms`, rows: rows.length });
     return rows;
   } catch (err) {
     console.error("Database query error:", err.message);
@@ -27,5 +40,5 @@ export const query = async (q, params) => {
   }
 };
 
-// We also export the pool itself for special cases like the login route
+// We also export the pool itself for the special login route
 export default pool;
