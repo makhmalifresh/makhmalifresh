@@ -32,7 +32,6 @@ export const verifyUserJWT = async (req, res, next) => {
     }
     
     // 5. This is the success log!
-    console.log(`Auth Success: Token verified for user_id ${claims.sub}`);
     req.auth = { userId: claims.sub };
     next();
 
