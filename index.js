@@ -9,6 +9,9 @@ import { fileURLToPath } from "url";
 import Razorpay from 'razorpay';
 import crypto from 'crypto';
 import { adminRouter } from "./adminRoutes.js";
+import { verifyUserJWT } from './verifyUserJWT.js';
+import { query } from './db.js';
+
 
 //RAZOPAY backend api
 const razorpay = new Razorpay({
@@ -58,10 +61,10 @@ const whatsapp = axios.create({
 // ---------------------------
 // Helpers
 // ---------------------------
-async function query(q, params) {
-  const { rows } = await pool.query(q, params);
-  return rows;
-}
+// async function query(q, params) {
+//   const { rows } = await pool.query(q, params);
+//   return rows;
+// }
 
 // ---------------------------
 // Routes
@@ -120,13 +123,6 @@ app.post("/api/payment/verify", async (req, res) => {
   }
 });
 
-
-// Root
-// app.get("/", (req, res) => {
-//   res.json({ message: "Makhmali backend running 🚀" });
-// });
-
-// Products
 app.get("/api/products", async (req, res) => {
   try {
     const rows = await query("SELECT * FROM products WHERE is_available = true ORDER BY id ASC");
@@ -185,16 +181,7 @@ app.get("/api/settings/surge-fee", async (req, res) => {
 });
 
 
-
-
-
 //OFFER MANAGEMENT SYSTEM
-
-// In server.js
-
-// ... (after your other public routes like /api/settings/store-status)
-
-// --- NEW: Public endpoint for customers to get active offers for the marquee ---
 app.get("/api/offers/active", async (req, res) => {
   try {
     const result = await query(
@@ -207,7 +194,6 @@ app.get("/api/offers/active", async (req, res) => {
   }
 });
 
-// ... (rest of server.js)
 
 //COUPON CODE MANAGEMENT
 
@@ -228,11 +214,6 @@ app.post("/api/cart/validate-coupon", async (req, res) => {
     if (!coupon) {
       return res.status(404).json({ error: "Invalid or expired coupon code." });
     }
-
-    // Optional: Check for expiration date if you have one
-    // if (coupon.expires_at && new Date(coupon.expires_at) < new Date()) {
-    //   return res.status(400).json({ error: "This coupon has expired." });
-    // }
 
     // 3. Calculate the discount amount.
     let discount_amount = 0;
@@ -258,48 +239,31 @@ app.post("/api/cart/validate-coupon", async (req, res) => {
   }
 });
 
-
-// ... (all existing code in server.js)
-
-// --- THIS IS THE CORRECTED CHECKOUT ENDPOINT ---
-app.post("/api/cart/checkout", async (req, res) => {
-  // Now accepts the full breakdown of the order
-  const { cart, address, payMethod, subtotal, delivery_fee, discount_amount, grand_total, platform_fee, surge_fee } = req.body;
-
+// GET all orders for the logged-in user, including their items and tracking links.
+app.get("/api/orders/my-orders", verifyUserJWT, async (req, res) => {
+  const { userId } = req.auth;
   try {
-    // CORRECTED: The query now has a $12 placeholder for the 'status' column.
-    const orderQuery = `
-      INSERT INTO orders (customer_name, phone, address_line1, area, city, pincode, pay_method, subtotal, delivery_fee, discount_amount, grand_total, platform_fee, surge_fee, status)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) 
-      RETURNING *`;
-
-    // CORRECTED: The parameters array now includes the 12th value for the status.
-    const orderParams = [
-      address.name, address.phone, address.line1, address.area, address.city, address.pincode,
-      payMethod, Math.round(subtotal), Math.round(delivery_fee), Math.round(discount_amount), Math.round(grand_total), Math.round(platform_fee), Math.round(surge_fee), 'CREATED'
-    ];
-
-    const order = await query(orderQuery, orderParams);
-    const orderId = order[0].id;
-
-    // The order_items logic remains correct and does not need to be changed.
-    for (const item of cart) {
-      await query(
-        `INSERT INTO order_items (order_id, product_id, qty, price)
-         VALUES ($1, $2, $3, $4)`,
-        [orderId, item.id, item.qty, item.price]
-      );
-    }
-
-    // Respond with the created order ID
-    res.json({ id: orderId });
+    const queryStr = `
+            SELECT 
+                o.*, d.tracking_url,
+                (
+                    SELECT json_agg(json_build_object('name', p.name, 'qty', oi.qty, 'price', oi.price))
+                    FROM order_items oi
+                    JOIN products p ON oi.product_id = p.id
+                    WHERE oi.order_id = o.id
+                ) as items
+            FROM orders o
+            LEFT JOIN deliveries d ON o.id = d.order_id
+            WHERE o.user_id = $1
+            ORDER BY o.created_at DESC;
+        `;
+    const orders = await query(queryStr, [userId]);
+    res.json(orders);
   } catch (e) {
-    // IMPROVED: This will now log the specific database error for easier debugging.
-    console.error("Checkout database error:", e.detail || e.message);
-    res.status(500).json({ error: "Checkout failed due to a database error." });
+    console.error("Fetch my-orders error:", e);
+    res.status(500).json({ error: "Failed to fetch orders." });
   }
 });
-
 
 // Borzo: calculate delivery fee
 app.post("/api/borzo/calculate-fee", async (req, res) => {
@@ -378,266 +342,24 @@ app.post("/api/borzo/calculate-fee", async (req, res) => {
   }
 });
 
-
-
-// ... (the rest of your server.js file)
-// Borzo: normal order create delivery order with razorpay
-app.post("/api/borzo/create-order", async (req, res) => {
-  const { orderId, address, items } = req.body;
-
-
-  try {
-    const matter = items.map((i) => `${i.qty}x ${i.name}${i.weight ? ` (${i.weight}g)` : ''}`).join(", ");
-
-    // --- NEW: Calculate the total weight in kilograms ---
-    const totalWeightGrams = items.reduce((sum, item) => {
-      // Ensure weight and qty are numbers, default to 0 if not
-      const weight = Number(item.weight) || 0;
-      const qty = Number(item.qty) || 0;
-      return sum + (weight * qty);
-    }, 0);
-    // Convert grams to kilograms for the API
-    const total_weight_kg = totalWeightGrams / 1000;
-    const payload = {
-      type: "standard",
-      matter,
-      total_weight_kg,
-      vehicle_type_id: 8, // bike
-      is_contact_person_notification_enabled: true,
-      is_client_notification_enabled: true,
-      points: [
-        {
-          address: "Makhmali The Fresh Meat Store, Shop No. 1, Mutton Chicken Centre, New Makhmali, Lal Bahadur Shastri Marg, opp. makhmali Talao, Thane, Maharashtra 400601",
-          contact_person: {
-            phone: "919867777860",
-            name: "Shoaib Qureshi",
-          },
-        },
-        {
-          address: `${address.line1}, ${address.area}, ${address.city} ${address.pincode}`,
-          contact_person: {
-            phone: address.phone.startsWith("+91")
-              ? `91${address.phone.slice(3)}`
-              : `91${address.phone}`,
-            name: address.name,
-          },
-          client_order_id: orderId.toString(),
-          note: address.note || null,
-        },
-      ],
-      payment_method: "balance"
-    };
-
-
-    const { data } = await borzo.post("/create-order", payload);
-    // console.log(data)
-    let stat = ""
-
-    if (data.order?.status == "new"){
-      stat = "Confirmed"
-    }else{
-      stat = "Pending"
-    }
-// const address //TODO
-        const msg_to_owner_payload = {
-  "messaging_product": "whatsapp",
-  "recipient_type": "individual",
-  "to": "919867777860",
-  "type": "text",
-  "text": {
-    "preview_url": true,
-    "body": 
-
-`Makhmali Fresh recieved an order
-
-*==Order Details==*
-*Order ID: ${data.order?.order_id}*
-*Name:* ${address.name}
-*Address:* ${address.line1} ${address.area} ${address.city} ${address.pincode}
-*Phone:* ${address.phone}
-*Product Description:* ${matter}
-
-To track the order please click:
-${data.order?.points?.[1]?.tracking_url}
-`
-  }
-}
-
-        const msg_to_employee_payload = {
-  "messaging_product": "whatsapp",
-  "recipient_type": "individual",
-  "to": "918779121361",
-  "type": "text",
-  "text": {
-    "preview_url": true,
-    "body": 
-
-`Makhmali Fresh recieved an order
-
-Order Details:
-*Order ID: ${data.order?.order_id}*
-*Name:* ${address.name}
-*Address:* ${address.line1} ${address.area} ${address.city} ${address.pincode}
-*Phone:* ${address.phone}
-*Product Description:* ${matter}
-
-To track the order please click:
-${data.order?.points?.[1]?.tracking_url}`
-  }
-}
-
-let cus_number = "+919321561224";
-
-if (address.phone.startsWith("+91")){
-  cus_number = `91${address.phone.slice(3)}`
-}else{
-  cus_number = `91${address.phone}`
-}
-// console.log(cus_number);
-
-const msg_to_customer_payload = {
-    "messaging_product": "whatsapp",
-    "recipient_type": "individual",
-    "to": `${cus_number}`,
-    "type": "template",
-    "template": {
-        "name": "order_created",
-        "language": {
-            "code": "en"
-        },
-        "components": [
-            {
-                "type": "body",
-                "parameters": [
-                    {
-                        "type": "text",
-                        "text": `${matter}`
-                    },
-                    {
-                        "type": "text",
-                        "text": `${stat}`
-                    },
-                    {
-                        "type": "text",
-                        "text": `${data.order?.points?.[1]?.tracking_url}`
-                    }
-                ]
-            }
-        ]
-    }
-}
-
-
-    if (data.order?.order_id) {
-      await query(
-        `INSERT INTO deliveries (order_id, porter_task_id, status, tracking_url, eta)
-         VALUES ($1,$2,$3,$4,$5)`,
-        [
-          orderId,
-          data.order?.order_id,
-          data.order?.status,
-          data.order?.points?.[2]?.tracking_url || null,
-          data.order?.created_datetime || null,
-        ]
-      );
-
-    }
-
-
-    const { ownerdata: send_msg_to_owner } = await whatsapp.post("/messages", msg_to_owner_payload);
-    const { employeedata: send_msg_to_employee } = await whatsapp.post("/messages", msg_to_employee_payload);
-    const { customerdata: send_msg_to_customer } = await whatsapp.post("/messages", msg_to_customer_payload);
-
-    // res.json(data);
-    const responses = res.json({ success: true, order: data.order });
-    return responses;
-    
-
-  } catch (e) {
-    console.error("Borzo error:", e.response?.data || e.message);
-    res
-      .status(500)
-      .json({ error: "Borzo order creation failed", details: e.response?.data });
-  }
-});
-
-
-// Borzo: create delivery order with cash on delivery
-app.post("/api/borzo/create-cod-order", async (req, res) => {
-  const { orderId, address, items, taking_amount } = req.body;
-
-  try {
-    const matter = items.map((i) => `${i.qty}x ${i.name}`).join(", ");
-
-    const payload = {
-      type: "standard",
-      matter,
-      vehicle_type_id: 8, // bike
-      is_contact_person_notification_enabled: true,
-      is_client_notification_enabled: true,
-      points: [
-        {
-          address: "Makhmali The Fresh Meat Store, Shop No. 1, Mutton Chicken Centre, New Makhmali, Lal Bahadur Shastri Marg, opp. makhmali Talao, Thane, Maharashtra 400601",
-          contact_person: {
-            phone: "919867777860",
-            name: "Shoaib Qureshi",
-          },
-        },
-        {
-          address: `${address.line1}, ${address.area}, ${address.city} ${address.pincode}`,
-          is_cod_cash_voucher_required: true,
-          taking_amount: parseFloat(taking_amount),
-          contact_person: {
-            phone: address.phone.startsWith("+91")
-              ? `91${address.phone}`
-              : `91${address.phone}`,
-            name: address.name,
-          },
-          client_order_id: orderId.toString(),
-          note: address.note || null,
-        },
-      ],
-    };
-
-    const { data } = await borzo.post("/create-order", payload);
-
-    if (data.order?.order_id) {
-      await query(
-        `INSERT INTO deliveries (order_id, porter_task_id, status, tracking_url, eta)
-         VALUES ($1,$2,$3,$4,$5)`,
-        [
-          orderId,
-          data.order?.order_id,
-          data.order?.status,
-          data.order?.points?.[1]?.tracking_url || null,
-          data.order?.created_datetime || null,
-        ]
-      );
-    }
-
-    res.json(data);
-  } catch (e) {
-    console.error("Borzo error:", e.response?.data || e.message);
-    res
-      .status(500)
-      .json({ error: "Borzo order creation failed", details: e.response?.data });
-  }
-});
-
-
-
 // Borzo webhook
 app.post("/api/borzo/webhook", async (req, res) => {
   const event = req.body;
+  const borzoOrderId = event?.order?.order_id;
+  const newStatus = event?.order?.status;
+
+  if (!borzoOrderId || !newStatus) {
+    return res.status(400).send("Invalid webhook payload.");
+  }
   try {
-    await query(
-      `UPDATE deliveries SET status=$1 WHERE porter_task_id=$2`,
-      [event.status, event.order_id]
-    );
+    const updateQuery = `
+      UPDATE orders SET borzo_status = $1 
+      WHERE id = (SELECT order_id FROM deliveries WHERE porter_task_id = $2)`;
+    await query(updateQuery, [newStatus, borzoOrderId]);
     res.sendStatus(200);
   } catch (e) {
-    console.error(e);
-    res.status(500).send("Webhook update failed");
+    console.error("Webhook database update failed:", e);
+    res.status(500).send("Webhook processing failed.");
   }
 });
 
@@ -669,6 +391,253 @@ app.get("/api/borzo/courier/:orderId", async (req, res) => {
 
 // ... (after other public routes)
 
+
+app.post("/api/order/finalize-payment", verifyUserJWT, async (req, res) => {
+  const { userId } = req.auth;
+  const { orderPayload, paymentResponse } = req.body;
+  const { cart, address, payMethod, subtotal, delivery_fee, discount_amount, grand_total, platform_fee, surge_fee } = orderPayload;
+
+  // --- 1. VERIFY PAYMENT SIGNATURE ---
+  try {
+    const shasum = crypto.createHmac('sha256', process.env.RAZORPAY_KEY_SECRET);
+    shasum.update(`${paymentResponse.razorpay_order_id}|${paymentResponse.razorpay_payment_id}`);
+    const digest = shasum.digest('hex');
+
+    if (digest !== paymentResponse.razorpay_signature) {
+      return res.status(400).json({ error: 'Payment verification failed: Invalid signature.' });
+    }
+  } catch (verifyError) {
+    return res.status(500).json({ error: 'Payment verification error.' });
+  }
+
+  // --- 2. BEGIN ATOMIC TRANSACTION ---
+  const client = await pool.connect(); // Get one connection from the pool
+  try {
+    await client.query('BEGIN'); // Start the transaction
+
+    let createdBackendOrderId = null;
+    let borzoData = null;
+    let matter = "";
+
+    // --- Step A: Create the Order ---
+    const orderQuery = `
+      INSERT INTO orders (user_id, customer_name, phone, address_line1, area, city, pincode, pay_method, subtotal, delivery_fee, discount_amount, grand_total, platform_fee, surge_fee, status, borzo_status)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16) 
+      RETURNING id`;
+    const orderParams = [
+      userId, address.name, address.phone, address.line1, address.area, address.city, address.pincode,
+      payMethod, Math.round(subtotal), Math.round(delivery_fee), Math.round(discount_amount),
+      Math.round(grand_total), Math.round(platform_fee), Math.round(surge_fee), 'PAYMENT_VERIFIED', 'PENDING'
+    ];
+    const orderResult = await client.query(orderQuery, orderParams);
+    createdBackendOrderId = orderResult.rows[0].id;
+
+    // --- Step B: Create the Order Items ---
+    for (const item of cart) {
+      await client.query(
+        `INSERT INTO order_items (order_id, product_id, qty, price) VALUES ($1, $2, $3, $4)`,
+        [createdBackendOrderId, item.id, item.qty, item.price]
+      );
+    }
+
+    // --- Step C: Create the Borzo Order ---
+    matter = cart.map((i) => `${i.qty}x ${i.name}${i.weight ? ` (${i.weight}g)` : ''}`).join(", ");
+
+    // --- NEW: Calculate the total weight in kilograms ---
+    const totalWeightGrams = cart.reduce((sum, item) => {
+      // Ensure weight and qty are numbers, default to 0 if not
+      const weight = Number(item.weight) || 0;
+      const qty = Number(item.qty) || 0;
+      return sum + (weight * qty);
+    }, 0);
+    // Convert grams to kilograms for the API
+    const total_weight_kg = totalWeightGrams / 1000;
+    const borzoPayload = {
+      type: "standard",
+      matter,
+      total_weight_kg,
+      vehicle_type_id: 8, // bike
+      is_contact_person_notification_enabled: true,
+      is_client_notification_enabled: true,
+      points: [
+        {
+          address: "Makhmali The Fresh Meat Store, Shop No. 1, Mutton Chicken Centre, New Makhmali, Lal Bahadur Shastri Marg, opp. makhmali Talao, Thane, Maharashtra 400601",
+          contact_person: {
+            phone: "919867777860",
+            name: "Shoaib Qureshi",
+          },
+        },
+        {
+          address: `${address.line1}, ${address.area}, ${address.city} ${address.pincode}`,
+          contact_person: {
+            phone: address.phone.startsWith("+91")
+              ? `91${address.phone.slice(3)}`
+              : `91${address.phone}`,
+            name: address.name,
+          },
+          client_order_id: createdBackendOrderId.toString(),
+          note: address.note || null,
+        },
+      ],
+      payment_method: "balance"
+    };
+
+
+    // This is the critical network call inside the transaction
+    const borzoRes = await borzo.post("/create-order", borzoPayload);
+    // console.log(`Response from axios : ${borzoRes}`);
+    borzoData = borzoRes.data;
+    // console.log(`Response from borzo.data: ${borzoData}`)
+
+    if (!borzoData.order?.order_id) {
+      throw new Error('Borzo API failed to return an order_id.');
+    }
+
+    // --- Step D: Save the Delivery Info ---
+    await client.query(
+      `INSERT INTO deliveries (order_id, porter_task_id, status, tracking_url, eta) VALUES ($1, $2, $3, $4, $5)`,
+      [createdBackendOrderId, borzoData.order?.order_id, borzoData.order?.status, borzoData.order?.points[1]?.tracking_url || null, borzoData.order?.created_datetime || null]
+    );
+
+    // --- Step E: Mark the Order as Fully Created ---
+    await client.query("UPDATE orders SET borzo_status = 'CREATED' WHERE id = $1", [createdBackendOrderId]);
+
+    // --- 3. COMMIT THE TRANSACTION ---
+    await client.query('COMMIT'); // Lock in all the changes
+    // res.status(200).json({ status: 'success', orderId: createdBackendOrderId });
+
+
+
+    try {
+      if (!borzoData) return; // Safety check
+
+      const stat = (borzoData.order?.status === "new") ? "Confirmed" : "Pending";
+      const trackingUrl = borzoData.order?.points?.[1]?.tracking_url || "N/A";
+      const borzoOrderId = borzoData.order?.order_id || "N/A";
+      const address_customer = `${address.line1} ${address.area} ${address.city} ${address.pincode}`
+
+      // --- Message to Owner ---
+      const msg_to_owner_payload = {
+        messaging_product: "whatsapp", to: '919867777860', type: "template",
+        template: {
+          name: "order_confirmed_message_to_owner", language: { code: "en" },
+          components: [
+            {
+              type: "body", parameters: [
+                { type: "text", text: `${borzoOrderId} ${createdBackendOrderId}` },
+                { type: "text", text: `${address.name}` },
+                { type: "text", text: `${address_customer}` },
+                { type: "text", text: `${address.phone}` },
+                { type: "text", text: `${matter}` },
+                { type: "text", text: `${trackingUrl}` }
+              ]
+            }
+          ]
+        }
+      };
+
+      // ---- Message to Employee ----
+      const msg_to_employee_payload = {
+        messaging_product: "whatsapp", to: '918779121361', type: "template",
+        template: {
+          name: "order_confirmed_message_to_owner", language: { code: "en" },
+          components: [
+            {
+              type: "body", parameters: [
+                { type: "text", text: `${borzoOrderId} ${createdBackendOrderId}` },
+                { type: "text", text: `${address.name}` },
+                { type: "text", text: `${address_customer}` },
+                { type: "text", text: `${address.phone}` },
+                { type: "text", text: `${matter}` },
+                { type: "text", text: `${trackingUrl}` }
+              ]
+            }
+          ]
+        }
+      };
+
+      // --- Message to Customer ---
+      let cus_number = address.phone.startsWith("+91") ? `91${address.phone.slice(3)}` : `91${address.phone}`;
+      const msg_to_customer_payload = {
+        messaging_product: "whatsapp", to: cus_number, type: "template",
+        template: {
+          name: "order_created", language: { code: "en" },
+          components: [
+            {
+              type: "body", parameters: [
+                { type: "text", text: `${matter}` },
+                { type: "text", text: `${stat}` },
+                { type: "text", text: `${trackingUrl}` }
+              ]
+            }
+          ]
+        }
+      };
+
+      // Send all messages concurrently
+      // await Promise.all([
+        whatsapp.post("/messages", msg_to_owner_payload),
+        whatsapp.post("/messages", msg_to_employee_payload),
+        whatsapp.post("/messages", msg_to_customer_payload)
+      // ]);
+      // console.log(`Successfully sent all WhatsApp notifications for order #${createdBackendOrderId}.`);
+
+    } catch (e) {
+      // This is a non-critical error. The order was placed, but the messages failed.
+      console.error("WhatsApp notification failed:", e.response?.data || e.message);
+      // We do NOT send an error back to the user, as their order was successful.
+    }
+
+    res.status(200).json({ status: 'success', orderId: createdBackendOrderId });
+
+  } catch (e) {
+    // --- 4. ROLLBACK THE TRANSACTION ---
+    await client.query('ROLLBACK'); // Something failed. UNDO EVERYTHING.
+
+    console.error("CRITICAL CHECKOUT FAILURE:", e.message);
+    // This message is now safe to show, because we know the order was NOT created.
+    res.status(500).json({ error: "Order creation failed after payment. Your order was not placed. Please contact support for a refund." });
+
+  }
+});
+
+
+//NEW 
+app.get("/api/addresses", verifyUserJWT, async (req, res) => {
+  const { userId } = req.auth;
+  try {
+    const addresses = await query("SELECT * FROM addresses WHERE user_id = $1 ORDER BY created_at DESC", [userId]);
+    res.json(addresses);
+  } catch (e) {
+    console.error("Failed to fetch addresses:", e);
+    res.status(500).json({ error: "Failed to fetch addresses." });
+  }
+});
+
+// POST a new address for the currently logged-in user
+app.post("/api/addresses", verifyUserJWT, async (req, res) => {
+  const { userId } = req.auth;
+  const { customer_name, phone, address_line1, area, city, pincode } = req.body;
+
+  if (!customer_name || !phone || !address_line1 || !city || !pincode) {
+    return res.status(400).json({ error: "All address fields are required." });
+  }
+
+  try {
+    const newAddressQuery = `
+      INSERT INTO addresses (user_id, customer_name, phone, address_line1, area, city, pincode, name)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      RETURNING *`;
+    // We'll use the 'area' or 'city' as a default nickname for the address
+    const name = area || city;
+
+    const newAddress = await query(newAddressQuery, [userId, customer_name, phone, address_line1, area, city, pincode, name]);
+    res.status(201).json(newAddress[0]);
+  } catch (e) {
+    console.error("Failed to save address:", e);
+    res.status(500).json({ error: "Failed to save address." });
+  }
+});
 
 
 //ADMIN ROUTER
