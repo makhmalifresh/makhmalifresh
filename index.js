@@ -646,7 +646,11 @@ app.use('/api/admin', adminRouter);
 
 app.use(express.static(path.join(__dirname, "frontend/dist")));
 
-app.use((req, res) => {
+// 2. The "React Router Catch-All": This MUST be the last route.
+//    It handles all other GET requests that are NOT API routes
+//    (e.g., /my-orders, /admin/dashboard) and sends them your React app's
+//    index.html. React Router then takes over and displays the correct page.
+app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, "frontend/dist", "index.html"));
 });
 
