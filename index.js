@@ -561,7 +561,7 @@ app.post("/api/order/finalize-payment", verifyUserJWT, async (req, res) => {
       const matterText = matter;
 
       // Owner message
-      const ownerPhone = "919321561224";
+      const ownerPhone = "919867777860";
       const employeePhone = "918779121361";
       const cus_number = normalizePhoneNumber(address.phone);
 
@@ -618,7 +618,7 @@ app.post("/api/order/finalize-payment", verifyUserJWT, async (req, res) => {
       // Fire concurrently and inspect results (do not cause rollback)
       const results = await Promise.allSettled([
         whatsapp.post("/messages", msg_to_owner),
-        // whatsapp.post("/messages", msg_to_employee),
+        whatsapp.post("/messages", msg_to_employee),
         whatsapp.post("/messages", msg_to_customer),
       ]);
 
