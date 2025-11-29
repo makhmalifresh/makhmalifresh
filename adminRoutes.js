@@ -86,28 +86,28 @@ async function sendWhatsappMessage(phone, template, matter_item, status, trackin
   });
 }
 
-async function whatappMessageToOwner(phone, template, matter_item, cus_number, order_id, name, address, tracking) {
-  await whatsapp.post('/messages', {
-    messaging_product: 'whatsapp',
-    to: phone,
-    type: 'template',
-    template: {
-      name: template,
-      language: { code: 'en' },
-      components: [{
-        type: 'body', parameters: [
-          { type: "text", text: order_id },
-          { type: "text", text: name },
-          { type: "text", text: address },
-          { type: "text", text: cus_number },
-          { type: "text", text: matter_item },
-          { type: "text", text: tracking },
+// async function whatappMessageToOwner(phone, template, matter_item, cus_number, order_id, name, address, tracking) {
+//   await whatsapp.post('/messages', {
+//     messaging_product: 'whatsapp',
+//     to: phone,
+//     type: 'template',
+//     template: {
+//       name: template,
+//       language: { code: 'en' },
+//       components: [{
+//         type: 'body', parameters: [
+//           { type: "text", text: order_id },
+//           { type: "text", text: name },
+//           { type: "text", text: address },
+//           { type: "text", text: cus_number },
+//           { type: "text", text: matter_item },
+//           { type: "text", text: tracking },
 
-        ],
-      }]
-    }
-  });
-}
+//         ],
+//       }]
+//     }
+//   });
+// }
 
 /* ----------------------
    Public admin login route
@@ -599,17 +599,6 @@ router.post('/orders/:orderId/manual-book', async (req, res) => {
           data.tracking_url
         );
 
-        // Send to admin/owner
-        // await whatappMessageToOwner(
-        //   "919321561224",
-        //   "order_confirmed_message_to_owner",
-        //   productMessage,         // {{5}}
-        //   cus,                    // {{4}}
-        //   `${data.partner} - ${orderId}`,                // {{1}} 
-        //   data.customer_name,     // {{2}}
-        //   fullAddress,            // {{3}}
-        //   data.tracking_url       // {{6}}
-        // );
 
       }
     } catch (waErr) {

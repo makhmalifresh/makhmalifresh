@@ -12,15 +12,22 @@ import { verifyUserJWT } from './verifyUserJWT.js'
 import dotenv from 'dotenv';
 import cors from "cors";
 import pool from "./db.js"
-
+import { fileURLToPath } from "url";
+import path from 'path';
 
 dotenv.config();
 
 // ---------- Config / Clients ----------
 const app = express();
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
 // app.use(bodyParser.json({ limit: '1mb' }));
 app.use(cors());
 app.use(bodyParser.json());
+
+
 
 // Razorpay client (exactly as you specified)
 const razorpay = new Razorpay({
@@ -900,7 +907,9 @@ app.post('/api/order/finalize-payment', verifyUserJWT, async (req, res) => {
 
           if (cus) {
             await sendWhatsappMessage(cus, "order_created", matter, "PENDING", "You’ll receive a WhatsApp update with a tracking link once your order is CONFIRMED.");
-            await whatappMessageToOwner("919321561224", "order_confirmed_message_to_owner",matter, address.phone, "PENDING- BOOK ORDER MANUALLY", address.name, fullAddress, "Please Manually Book Order and Resolve in Admin Panel")
+            await whatappMessageToOwner("919867777860", "order_confirmed_message_to_owner",matter, address.phone, "PENDING- BOOK ORDER MANUALLY", address.name, fullAddress, "Please Manually Book Order and Resolve in Admin Panel")
+            await whatappMessageToOwner("918779121361", "order_confirmed_message_to_owner",matter, address.phone, "PENDING- BOOK ORDER MANUALLY", address.name, fullAddress, "Please Manually Book Order and Resolve in Admin Panel")
+
           }
         } catch (waErr) {
           console.error('WhatsApp failed after Manual booking:', waErr?.message || waErr);
@@ -944,7 +953,9 @@ app.post('/api/order/finalize-payment', verifyUserJWT, async (req, res) => {
             const cus = normalizePhoneNumber(addr.phone);
             if (cus) {
               await sendWhatsappMessage(cus, "order_created", matter, "Confirmed", bk.tracking_url);
-              await whatappMessageToOwner("919321561224", "order_confirmed_message_to_owner", matter, cus, `BORZO- ${full_orderId}`, fullAddress, bk.tracking_url)
+              await whatappMessageToOwner("919867777860", "order_confirmed_message_to_owner", matter, cus, `BORZO- ${full_orderId}`, fullAddress, bk.tracking_url)
+              await whatappMessageToOwner("918779121361", "order_confirmed_message_to_owner", matter, cus, `BORZO- ${full_orderId}`, fullAddress, bk.tracking_url)
+
             }
           } catch (waErr) {
             console.error('WhatsApp failed after Borzo booking:', waErr?.message || waErr);
@@ -977,7 +988,8 @@ app.post('/api/order/finalize-payment', verifyUserJWT, async (req, res) => {
             const cus = normalizePhoneNumber(addr.phone);
             if (cus) {
               await sendWhatsappMessage(cus, "order_created", matter, "Confirmed", bk.tracking_url);
-              await whatappMessageToOwner("919321561224", "order_confirmed_message_to_owner", matter, cus, `PORTER- ${full_orderId}`, fullAddress, bk.tracking_url)
+              await whatappMessageToOwner("919867777860", "order_confirmed_message_to_owner", matter, cus, `PORTER- ${full_orderId}`, fullAddress, bk.tracking_url)
+              await whatappMessageToOwner("918779121361", "order_confirmed_message_to_owner", matter, cus, `PORTER- ${full_orderId}`, fullAddress, bk.tracking_url)
 
             }
           } catch (waErr) {
@@ -1026,7 +1038,8 @@ app.post('/api/order/finalize-payment', verifyUserJWT, async (req, res) => {
             const cus = normalizePhoneNumber(addr.phone);
             if (cus) {
               await sendWhatsappMessage(cus, "order_created", matter, "Confirmed", bookingResult.tracking_url)
-              await whatappMessageToOwner("919321561224", "order_confirmed_message_to_owner", matter, cus, `${chosenPartner.toUpperCase()}- ${bookingResult.order_id} ${createdOrderId}`, fullAddress, bookingResult.tracking_url)
+              await whatappMessageToOwner("919867777860", "order_confirmed_message_to_owner", matter, cus, `${chosenPartner.toUpperCase()}- ${bookingResult.order_id} ${createdOrderId}`, fullAddress, bookingResult.tracking_url)
+              await whatappMessageToOwner("918779121361", "order_confirmed_message_to_owner", matter, cus, `${chosenPartner.toUpperCase()}- ${bookingResult.order_id} ${createdOrderId}`, fullAddress, bookingResult.tracking_url)
 
             }
           } catch (waErr) {
@@ -1074,6 +1087,12 @@ app.post('/api/order/finalize-payment', verifyUserJWT, async (req, res) => {
 //   console.error("Postgres connection error:", err);
 // });
 
+
+app.use(express.static(path.join(__dirname, "frontend/dist")));
+
+app.use((req, res) => {
+  res.sendFile(path.join(__dirname, "frontend/dist", "index.html"));
+});
 
 // ---------- Mount admin routes ----------
 app.use('/api/admin', adminRoutes);
