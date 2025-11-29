@@ -20,14 +20,16 @@ dotenv.config();
 // ---------- Config / Clients ----------
 const app = express();
 
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
 
 // app.use(bodyParser.json({ limit: '1mb' }));
 app.use(cors());
 app.use(bodyParser.json());
 
-
+app.get('/health', (req, res) => res.status(200).json("SERVICES ARE ON AND ACTIVE"));
 
 // Razorpay client (exactly as you specified)
 const razorpay = new Razorpay({
@@ -1093,13 +1095,15 @@ app.post('/api/order/finalize-payment', verifyUserJWT, async (req, res) => {
 app.use('/api/admin', adminRoutes);
 
 // ---------- Health & server ----------
-app.get('/health', (req, res) => res.json({ ok: true }));
+// app.get('/health', (req, res) => res.json({ ok: true }));
 
 app.use(express.static(path.join(__dirname, "frontend/dist")));
 
 app.use((req, res) => {
   res.sendFile(path.join(__dirname, "frontend/dist", "index.html"));
 });
+
+
 
 
 const port = process.env.PORT || 4000;
