@@ -1088,11 +1088,6 @@ app.post('/api/order/finalize-payment', verifyUserJWT, async (req, res) => {
 // });
 
 
-app.use(express.static(path.join(__dirname, "frontend/dist")));
-
-app.use((req, res) => {
-  res.sendFile(path.join(__dirname, "frontend/dist", "index.html"));
-});
 
 // ---------- Mount admin routes ----------
 app.use('/api/admin', adminRoutes);
@@ -1100,14 +1095,12 @@ app.use('/api/admin', adminRoutes);
 // ---------- Health & server ----------
 app.get('/health', (req, res) => res.json({ ok: true }));
 
+app.use(express.static(path.join(__dirname, "frontend/dist")));
+
+app.use((req, res) => {
+  res.sendFile(path.join(__dirname, "frontend/dist", "index.html"));
+});
+
+
 const port = process.env.PORT || 4000;
 app.listen(port, () => console.log(`Server started on port ${port}`));
-
-
-
-
-
-
-
-
-
