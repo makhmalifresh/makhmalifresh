@@ -59,7 +59,6 @@ async function query(text, params) {
 // WhatsApp client (best-effort)
 const whatsapp = axios.create({
   baseURL: process.env.WHATSAPP_BASE_URL || 'https://graph.facebook.com/v22.0/811413942060929',
-  timeout: 10000,
   headers: {
     Authorization: `Bearer ${process.env.WHATSAPP_API_KEY || ''}`,
     'Content-Type': 'application/json'
@@ -585,9 +584,9 @@ router.post('/orders/:orderId/manual-book', async (req, res) => {
 
       const productMessage = `Check the admin panel for product details of order ${orderId}`;
 
-      console.log("tracking:", data.tracking_url);
-      console.log("partner:", data.partner);
-      console.log("address:", fullAddress);
+      // console.log("tracking:", data.tracking_url);
+      // console.log("partner:", data.partner);
+      // console.log("address:", fullAddress);
 
       if (cus) {
         // Send to customer

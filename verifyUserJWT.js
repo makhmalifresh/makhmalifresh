@@ -9,7 +9,7 @@ const clerk = Clerk({ secretKey: process.env.CLERK_SECRET_KEY });
 export const verifyUserJWT = async (req, res, next) => {
   
   // 2. Log when the middleware is hit.
-  console.log(`\n--- verifyUserJWT Middleware Triggered for: ${req.method} ${req.url} ---`);
+  // console.log(`\n--- verifyUserJWT Middleware Triggered for: ${req.method} ${req.url} ---`);
   
   const authHeader = req.headers.authorization;
   

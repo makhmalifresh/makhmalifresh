@@ -80,7 +80,6 @@ const borzo = axios.create({
 
 const whatsapp = axios.create({
   baseURL: process.env.WHATSAPP_BASE_URL || 'https://graph.facebook.com/v22.0/811413942060929',
-  timeout: 10000,
   headers: {
     Authorization: `Bearer ${process.env.WHATSAPP_API_KEY || ''}`,
     'Content-Type': 'application/json'
@@ -176,7 +175,7 @@ async function geocodeAddressFree(address) {
   const r = await axios.get(url);
 
   // 👉 Correct access
-  console.log(r.data.data[0].latitude, r.data.data[0].longitude);
+  // console.log(r.data.data[0].latitude, r.data.data[0].longitude);
 
   if (!r.data.data || r.data.data.length === 0) {
     throw new Error('Geocoding returned no results');
@@ -319,7 +318,7 @@ async function porterCreateOrder(address, items, clientOrderId) {
   try {
     const res = await porter.post("/v1/orders/create", payload);
 
-    console.log("PORTER RESPONSE:", res.data);
+    // console.log("PORTER RESPONSE:", res.data);
 
     return {
       request_id: res.data.request_id,
@@ -759,48 +758,51 @@ app.post("/api/borzo/calculate-fee", async (req, res) => {
   }
 });
 
-app.post("/api/borzo/webhook", async (req, res) => {
-  const event = req.body;
-  const borzoOrderId = event?.order?.order_id;
-  const newStatus = event?.order?.status;
-  if (!borzoOrderId || !newStatus) return res.status(400).send("Invalid webhook payload.");
+// app.post("/api/borzo/webhook", async (req, res) => {
+//   const event = req.body;
+//   const borzoOrderId = event?.order?.order_id;
+//   const newStatus = event?.order?.status;
+//   if (!borzoOrderId || !newStatus) return res.status(400).send("Invalid webhook payload.");
 
-  try {
-    const updateQuery = `
-      UPDATE orders SET borzo_status = $1 
-      WHERE id = (SELECT order_id FROM deliveries WHERE porter_task_id = $2)`;
-    await query(updateQuery, [newStatus, borzoOrderId]);
-    res.sendStatus(200);
-  } catch (e) {
-    console.error("Webhook database update failed:", e.message || e);
-    res.status(500).send("Webhook processing failed.");
-  }
-});
+//   try {
+//     const updateQuery = `
+//       UPDATE orders SET borzo_status = $1 
+//       WHERE id = (SELECT order_id FROM deliveries WHERE porter_task_id = $2)`;
+//     await query(updateQuery, [newStatus, borzoOrderId]);
+//     res.sendStatus(200);
+//   } catch (e) {
+//     console.error("Webhook database update failed:", e.message || e);
+//     res.status(500).send("Webhook processing failed.");
+//   }
+// });
 
-app.get("/api/borzo/order/:orderId", async (req, res) => {
-  try {
-    const { orderId } = req.params;
-    const borzoRes = await borzo.get(`/orders?order_id=${orderId}`);
-    res.json(borzoRes.data);
-  } catch (err) {
-    console.error("Borzo order status error:", err.response?.data || err.message || err);
-    res.status(500).json({ error: "Failed to fetch order status" });
-  }
-});
+// app.get("/api/borzo/order/:orderId", async (req, res) => {
+//   try {
+//     const { orderId } = req.params;
+//     const borzoRes = await borzo.get(`/orders?order_id=${orderId}`);
+    
+//     res.json(borzoRes.data);
+//   } catch (err) {
+//     console.error("Borzo order status error:", err.response?.data || err.message || err);
+//     res.status(500).json({ error: "Failed to fetch order status" });
+//   }
+// });
 
-app.get("/api/borzo/courier/:orderId", async (req, res) => {
-  try {
-    const { orderId } = req.params;
-    const borzoRes = await borzo.get(`/courier?order_id=${orderId}`);
-    res.json(borzoRes.data);
-  } catch (err) {
-    console.error("Borzo courier error:", err.response?.data || err.message || err);
-    res.status(500).json({ error: "Failed to fetch courier info" });
-  }
-});
+// app.get("/api/borzo/courier/:orderId", async (req, res) => {
+//   try {
+//     const { orderId } = req.params;
+//     const borzoRes = await borzo.get(`/courier?order_id=${orderId}`);
+//     res.json(borzoRes.data);
+//   } catch (err) {
+//     console.error("Borzo courier error:", err.response?.data || err.message || err);
+//     res.status(500).json({ error: "Failed to fetch courier info" });
+//   }
+// });
 
 
 // ---------- Main finalize-payment endpoint ----------
+
+
 /**
  * Expected body:
  * {
@@ -955,8 +957,8 @@ app.post('/api/order/finalize-payment', verifyUserJWT, async (req, res) => {
             const cus = normalizePhoneNumber(addr.phone);
             if (cus) {
               await sendWhatsappMessage(cus, "order_created", matter, "Confirmed", bk.tracking_url);
-              await whatappMessageToOwner("919867777860", "order_confirmed_message_to_owner", matter, cus, `BORZO- ${full_orderId}`, fullAddress, bk.tracking_url)
-              await whatappMessageToOwner("918779121361", "order_confirmed_message_to_owner", matter, cus, `BORZO- ${full_orderId}`, fullAddress, bk.tracking_url)
+              await whatappMessageToOwner("919867777860", "order_confirmed_message_to_owner", matter, cus, `BORZO- ${full_orderId}`, addr.name, fullAddress, bk.tracking_url)
+              await whatappMessageToOwner("918779121361", "order_confirmed_message_to_owner", matter, cus, `BORZO- ${full_orderId}`, addr.name, fullAddress, bk.tracking_url)
 
             }
           } catch (waErr) {
@@ -990,8 +992,8 @@ app.post('/api/order/finalize-payment', verifyUserJWT, async (req, res) => {
             const cus = normalizePhoneNumber(addr.phone);
             if (cus) {
               await sendWhatsappMessage(cus, "order_created", matter, "Confirmed", bk.tracking_url);
-              await whatappMessageToOwner("919867777860", "order_confirmed_message_to_owner", matter, cus, `PORTER- ${full_orderId}`, fullAddress, bk.tracking_url)
-              await whatappMessageToOwner("918779121361", "order_confirmed_message_to_owner", matter, cus, `PORTER- ${full_orderId}`, fullAddress, bk.tracking_url)
+              await whatappMessageToOwner("919867777860", "order_confirmed_message_to_owner", matter, cus, `PORTER- ${full_orderId}`,addr.name, fullAddress, bk.tracking_url)
+              await whatappMessageToOwner("918779121361", "order_confirmed_message_to_owner", matter, cus, `PORTER- ${full_orderId}`,addr.name, fullAddress, bk.tracking_url)
 
             }
           } catch (waErr) {
@@ -1012,15 +1014,15 @@ app.post('/api/order/finalize-payment', verifyUserJWT, async (req, res) => {
 
         try {
           const chosenPartner = chosen_partner;
-          console.log(chosenPartner)
+          // console.log(chosenPartner)
           let bookingResult = null;
           // Book with chosen partner
           if (chosenPartner === 'porter') {
             bookingResult = await porterCreateOrder(addr, items, createdOrderId);
-            console.log("used porter");
+            // console.log("used porter");
           } else if (chosenPartner == 'borzo') {
             bookingResult = await borzoCreateOrder(addr, items, createdOrderId);
-            console.log("used borzo");
+            // console.log("used borzo");
           }
 
           if (!bookingResult.order_id) {
@@ -1040,8 +1042,8 @@ app.post('/api/order/finalize-payment', verifyUserJWT, async (req, res) => {
             const cus = normalizePhoneNumber(addr.phone);
             if (cus) {
               await sendWhatsappMessage(cus, "order_created", matter, "Confirmed", bookingResult.tracking_url)
-              await whatappMessageToOwner("919867777860", "order_confirmed_message_to_owner", matter, cus, `${chosenPartner.toUpperCase()}- ${bookingResult.order_id} ${createdOrderId}`, fullAddress, bookingResult.tracking_url)
-              await whatappMessageToOwner("918779121361", "order_confirmed_message_to_owner", matter, cus, `${chosenPartner.toUpperCase()}- ${bookingResult.order_id} ${createdOrderId}`, fullAddress, bookingResult.tracking_url)
+              await whatappMessageToOwner("919867777860", "order_confirmed_message_to_owner", matter, cus, `${chosenPartner.toUpperCase()}- ${bookingResult.order_id} ${createdOrderId}`,addr.name, fullAddress, bookingResult.tracking_url)
+              await whatappMessageToOwner("918779121361", "order_confirmed_message_to_owner", matter, cus, `${chosenPartner.toUpperCase()}- ${bookingResult.order_id} ${createdOrderId}`,addr.name, fullAddress, bookingResult.tracking_url)
 
             }
           } catch (waErr) {
