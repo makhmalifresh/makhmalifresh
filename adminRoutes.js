@@ -47,14 +47,10 @@ function normalizePhoneNumber(phone) {
 }
 
 async function query(text, params) {
-  const client = await pool.connect();
-  try {
-    const res = await client.query(text, params);
-    return res.rows;
-  } finally {
-    client.release();
-  }
+  const res = await pool.query(text, params); // SAFE → uses queuedQuery
+  return res.rows;
 }
+
 
 // WhatsApp client (best-effort)
 const whatsapp = axios.create({
