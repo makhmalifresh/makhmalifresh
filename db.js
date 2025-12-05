@@ -90,6 +90,6 @@ export default pool;
 // --------------------------------------------------
 // KEEP NEON CONNECTION ALIVE
 // --------------------------------------------------
-setInterval(() => {
-  basePool.query("SELECT 1").catch(() => {});
-}, 30000);
+// setInterval(() => {
+//   basePool.query("SELECT 1").catch(() => {});
+// }, 30000);
