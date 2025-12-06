@@ -49,7 +49,7 @@ async function safeQuery(text, params) {
         err.message.includes("Client has encountered a connection error");
 
       if (retryable) {
-        console.log(`🔄 DB retry ${attempt}/3 → ${err.message}`);
+        console.log(` DB retry ${attempt}/3 → ${err.message}`);
         await new Promise((r) => setTimeout(r, 100));
         continue;
       }

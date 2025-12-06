@@ -15,6 +15,9 @@ import pool from "./db.js"
 import { fileURLToPath } from "url";
 import path from 'path';
 
+import { logOrderEvent } from "./orderLogger.js";
+
+
 dotenv.config();
 
 // ---------- Config / Clients ----------
@@ -839,12 +842,35 @@ app.post('/api/order/finalize-payment', verifyUserJWT, async (req, res) => {
     const digest = shasum.digest("hex");
 
     if (digest !== paymentResponse.razorpay_signature) {
+      await logOrderEvent({
+        event: "payment_verification_failed",
+        user_id: userId,
+        razorpay_order_id: paymentResponse.razorpay_order_id,
+        razorpay_payment_id: paymentResponse.razorpay_payment_id,
+        reason: "invalid_signature",
+      });
+
       return res.status(400).json({
         error: "Payment verification failed: Invalid signature.",
       });
     }
+
+    // log successful verification
+    await logOrderEvent({
+      event: "payment_verified",
+      user_id: userId,
+      razorpay_order_id: paymentResponse.razorpay_order_id,
+      razorpay_payment_id: paymentResponse.razorpay_payment_id,
+    });
   } catch (err) {
     console.error("Payment signature verification error:", err);
+    await logOrderEvent({
+      event: "payment_verification_error",
+      user_id: userId,
+      razorpay_order_id: paymentResponse?.razorpay_order_id,
+      razorpay_payment_id: paymentResponse?.razorpay_payment_id,
+      error: err.message || String(err),
+    });
     return res.status(500).json({ error: "Payment verification error" });
   }
 
@@ -863,46 +889,92 @@ app.post('/api/order/finalize-payment', verifyUserJWT, async (req, res) => {
   } = orderPayload;
 
   if (!Array.isArray(cart) || cart.length === 0) {
+    await logOrderEvent({
+      event: "cart_empty_after_payment",
+      user_id: userId,
+      razorpay_payment_id: paymentResponse.razorpay_payment_id,
+    });
     return res.status(400).json({ error: "Cart cannot be empty." });
   }
 
-  let createdOrderId = null;
+  const items = cart;
+  const matter = items
+    .map(
+      (i) => `${i.qty}x ${i.name}${i.weight ? ` (${i.weight}g)` : ""}`
+    )
+    .join(", ");
 
+  const fullAddress = `${address.line1 || ""} ${address.area || ""} ${address.city || ""
+    } ${address.pincode || ""}`.trim();
+
+  // 2.5) PRE-ALERT WhatsApp to owners BEFORE DB insert
   try {
-    const items = cart;
+    await logOrderEvent({
+      event: "before_pre_alert",
+      user_id: userId,
+      razorpay_payment_id: paymentResponse.razorpay_payment_id,
+      owners: ["919867777860", "919321561224"],
+      summary: "Pre-alert sent before DB insert",
+      cart,
+      address,
+      grand_total,
+    });
 
-    const matter = items.map((i) => `${i.qty}x ${i.name}${i.weight ? ` (${i.weight}g)` : ""}`).join(", ");
-
-
-    const fullAddress = `${address.line1 || ""} ${address.area || ""} ${address.city || ""
-      } ${address.pincode || ""}`.trim();
+    const preAlertText =
+      "Order NOT in DB yet. This pre-alert is sent right after successful payment to make sure no order is missed.";
 
     await whatappMessageToOwner(
       "919867777860",
       "order_confirmed_message_to_owner",
       matter,
       address.phone,
-      "Order Not in the Database [This is done to ensure order is not missed after payment]",
+      preAlertText,
       address.name,
-      `${fullAddress}`,
-      "NOTE: If you receive a 2nd message with these details, the Order is CONFIRMED. If not, please check manually.");
+      fullAddress,
+      "If you receive a 2nd message with the same details, the order is CONFIRMED and stored. If not, please check manually."
+    );
 
     await whatappMessageToOwner(
       "919321561224",
       "order_confirmed_message_to_owner",
       matter,
       address.phone,
-      "Order Not in the Database [This is done to ensure order is not missed after payment]",
+      preAlertText,
       address.name,
-      `${fullAddress}`,
-      "NOTE: If you receive a 2nd message with these details, the Order is CONFIRMED. If not, please check manually.");
+      fullAddress,
+      "If you receive a 2nd message with the same details, the order is CONFIRMED and stored. If not, please check manually."
+    );
 
+    await logOrderEvent({
+      event: "prealert_whatsapp_sent",
+      user_id: userId,
+      razorpay_payment_id: paymentResponse.razorpay_payment_id,
+      owners: ["919867777860"],
+      summary: "Pre-alert sent before DB insert",
+    });
   } catch (err) {
-    console.log("initial whatsapp failed")
+    console.log("initial whatsapp failed", err?.message || err);
+    await logOrderEvent({
+      event: "prealert_whatsapp_failed",
+      user_id: userId,
+      razorpay_payment_id: paymentResponse.razorpay_payment_id,
+      error: err.message || String(err),
+      cart,
+      address,
+      grand_total
+    });
   }
+
+  let createdOrderId = null;
 
   // 3) DB TRANSACTION: insert order + items
   try {
+    await logOrderEvent({
+      event: "order_insert_begin",
+      user_id: userId,
+      grand_total,
+      cart_size: cart.length,
+    });
 
     await pool.query("BEGIN");
 
@@ -945,6 +1017,12 @@ app.post('/api/order/finalize-payment', verifyUserJWT, async (req, res) => {
     for (const item of cart) {
       if (!item?.id) {
         console.warn("Cart item without id, skipping:", item);
+        await logOrderEvent({
+          event: "order_item_skip_missing_id",
+          user_id: userId,
+          order_id: createdOrderId,
+          item_raw: item,
+        });
         continue;
       }
 
@@ -957,13 +1035,38 @@ app.post('/api/order/finalize-payment', verifyUserJWT, async (req, res) => {
     }
 
     await pool.query("COMMIT");
+
+    await logOrderEvent({
+      event: "order_saved",
+      user_id: userId,
+      order_id: createdOrderId,
+      grand_total,
+      cart_size: cart.length,
+      razorpay_payment_id: paymentResponse.razorpay_payment_id,
+    });
   } catch (err) {
     try {
       await pool.query("ROLLBACK");
     } catch (rbErr) {
       console.error("Rollback failed:", rbErr);
+      await logOrderEvent({
+        event: "order_rollback_failed",
+        user_id: userId,
+        error: rbErr.message || String(rbErr),
+      });
     }
+
     console.error("DB error creating order:", err);
+    await logOrderEvent({
+      event: "order_save_failed",
+      user_id: userId,
+      cart,
+      address,
+      grand_total,
+      razorpay_payment_id: paymentResponse.razorpay_payment_id,
+      error: err.message || String(err),
+    });
+
     return res
       .status(500)
       .json({ error: "Failed to create order after payment" });
@@ -972,10 +1075,26 @@ app.post('/api/order/finalize-payment', verifyUserJWT, async (req, res) => {
   // 4) Respond to client immediately (order safely in DB now)
   res.status(200).json({ status: "success", orderId: createdOrderId });
 
+  // Also log that API responded OK
+  await logOrderEvent({
+    event: "finalize_payment_responded",
+    user_id: userId,
+    order_id: createdOrderId,
+    status: "success",
+  });
+
   // 5) Background booking + notifications
   (async () => {
     async function markPending(orderId, partner, errMsg) {
       try {
+        await logOrderEvent({
+          event: "delivery_mark_pending",
+          user_id: userId,
+          order_id: orderId,
+          partner,
+          reason: errMsg,
+        });
+
         const exists = await query(
           "SELECT id FROM deliveries WHERE order_id = $1",
           [orderId]
@@ -1047,11 +1166,26 @@ app.post('/api/order/finalize-payment', verifyUserJWT, async (req, res) => {
               "Please Manually Book Order and Resolve in Admin Panel"
             );
           }
+
+          await logOrderEvent({
+            event: "delivery_mark_pending_whatsapp_ok",
+            user_id: userId,
+            order_id: orderId,
+            partner,
+          });
         } catch (waErr) {
           console.error(
             "WhatsApp failed after Manual booking:",
             waErr?.message || waErr
           );
+          await logOrderEvent({
+            event: "delivery_mark_pending_whatsapp_failed",
+            user_id: userId,
+            order_id: orderId,
+            partner,
+            error: waErr.message || String(waErr),
+          });
+
           await query(
             `UPDATE deliveries
              SET error_message = COALESCE(error_message, '') || $1
@@ -1064,6 +1198,13 @@ app.post('/api/order/finalize-payment', verifyUserJWT, async (req, res) => {
         }
       } catch (innerErr) {
         console.error("Failed to mark pending:", innerErr);
+        await logOrderEvent({
+          event: "delivery_mark_pending_failed",
+          user_id: userId,
+          order_id: orderId,
+          partner,
+          error: innerErr.message || String(innerErr),
+        });
       }
     }
 
@@ -1072,6 +1213,13 @@ app.post('/api/order/finalize-payment', verifyUserJWT, async (req, res) => {
         "SELECT setting_value FROM store_settings WHERE setting_key = 'delivery_mode'"
       );
       const deliveryMode = (dmRows[0]?.setting_value || "manual").toLowerCase();
+
+      await logOrderEvent({
+        event: "delivery_mode_resolved",
+        user_id: userId,
+        order_id: createdOrderId,
+        delivery_mode: deliveryMode,
+      });
 
       const addr = address;
       const items = cart;
@@ -1085,6 +1233,13 @@ app.post('/api/order/finalize-payment', verifyUserJWT, async (req, res) => {
       // BORZO ONLY
       if (deliveryMode === "borzo_only") {
         try {
+          await logOrderEvent({
+            event: "delivery_attempt",
+            user_id: userId,
+            order_id: createdOrderId,
+            partner: "borzo",
+          });
+
           const bk = await borzoCreateOrder(addr, items, createdOrderId);
           const full_orderId = `${bk.order_id} ${createdOrderId}`;
           const matter = items
@@ -1119,6 +1274,15 @@ app.post('/api/order/finalize-payment', verifyUserJWT, async (req, res) => {
             [createdOrderId]
           );
 
+          await logOrderEvent({
+            event: "delivery_success",
+            user_id: userId,
+            order_id: createdOrderId,
+            partner: "borzo",
+            delivery_task_id: bk.order_id,
+            tracking_url: bk.tracking_url || null,
+          });
+
           try {
             const cus = normalizePhoneNumber(addr.phone);
             if (cus) {
@@ -1149,12 +1313,27 @@ app.post('/api/order/finalize-payment', verifyUserJWT, async (req, res) => {
                 fullAddress,
                 bk.tracking_url
               );
+
+              await logOrderEvent({
+                event: "delivery_whatsapp_success",
+                user_id: userId,
+                order_id: createdOrderId,
+                partner: "borzo",
+              });
             }
           } catch (waErr) {
             console.error(
               "WhatsApp failed after Borzo booking:",
               waErr?.message || waErr
             );
+            await logOrderEvent({
+              event: "delivery_whatsapp_failed",
+              user_id: userId,
+              order_id: createdOrderId,
+              partner: "borzo",
+              error: waErr.message || String(waErr),
+            });
+
             await query(
               `UPDATE deliveries
                SET error_message = COALESCE(error_message, '') || $1
@@ -1167,6 +1346,14 @@ app.post('/api/order/finalize-payment', verifyUserJWT, async (req, res) => {
           }
         } catch (err) {
           console.error("Borzo booking failed:", err?.message || err);
+          await logOrderEvent({
+            event: "delivery_failed",
+            user_id: userId,
+            order_id: createdOrderId,
+            partner: "borzo",
+            error: err.message || String(err),
+          });
+
           await markPending(
             createdOrderId,
             "borzo",
@@ -1179,6 +1366,13 @@ app.post('/api/order/finalize-payment', verifyUserJWT, async (req, res) => {
       // PORTER ONLY
       if (deliveryMode === "porter_only") {
         try {
+          await logOrderEvent({
+            event: "delivery_attempt",
+            user_id: userId,
+            order_id: createdOrderId,
+            partner: "porter",
+          });
+
           const bk = await porterCreateOrder(addr, items, createdOrderId);
           const full_orderId = `${bk.order_id} ${createdOrderId}`;
           const matter = items
@@ -1213,6 +1407,15 @@ app.post('/api/order/finalize-payment', verifyUserJWT, async (req, res) => {
             [createdOrderId]
           );
 
+          await logOrderEvent({
+            event: "delivery_success",
+            user_id: userId,
+            order_id: createdOrderId,
+            partner: "porter",
+            delivery_task_id: bk.order_id,
+            tracking_url: bk.tracking_url || null,
+          });
+
           try {
             const cus = normalizePhoneNumber(addr.phone);
             if (cus) {
@@ -1243,12 +1446,27 @@ app.post('/api/order/finalize-payment', verifyUserJWT, async (req, res) => {
                 fullAddress,
                 bk.tracking_url
               );
+
+              await logOrderEvent({
+                event: "delivery_whatsapp_success",
+                user_id: userId,
+                order_id: createdOrderId,
+                partner: "porter",
+              });
             }
           } catch (waErr) {
             console.error(
               "WhatsApp failed after Porter booking:",
               waErr?.message || waErr
             );
+            await logOrderEvent({
+              event: "delivery_whatsapp_failed",
+              user_id: userId,
+              order_id: createdOrderId,
+              partner: "porter",
+              error: waErr.message || String(waErr),
+            });
+
             await query(
               `UPDATE deliveries
                SET error_message = COALESCE(error_message, '') || $1
@@ -1261,6 +1479,14 @@ app.post('/api/order/finalize-payment', verifyUserJWT, async (req, res) => {
           }
         } catch (err) {
           console.error("Porter booking failed:", err?.message || err);
+          await logOrderEvent({
+            event: "delivery_failed",
+            user_id: userId,
+            order_id: createdOrderId,
+            partner: "porter",
+            error: err.message || String(err),
+          });
+
           await markPending(
             createdOrderId,
             "porter",
@@ -1272,18 +1498,25 @@ app.post('/api/order/finalize-payment', verifyUserJWT, async (req, res) => {
 
       // AUTOMATIC_CHEAPEST
       if (deliveryMode === "automatic_cheapest") {
-        const matter = items
+        const matter2 = items
           .map(
             (i) =>
               `${i.qty}x ${i.name}${i.weight ? ` (${i.weight}g)` : ""
               }`
           )
           .join(", ");
-        const fullAddress = `${addr.line1} ${addr.area} ${addr.city} ${addr.pincode}`;
+        const fullAddress2 = `${addr.line1} ${addr.area} ${addr.city} ${addr.pincode}`;
 
         try {
           const chosenPartner = chosen_partner;
           let bookingResult = null;
+
+          await logOrderEvent({
+            event: "delivery_attempt",
+            user_id: userId,
+            order_id: createdOrderId,
+            partner: chosenPartner,
+          });
 
           if (chosenPartner === "porter") {
             bookingResult = await porterCreateOrder(addr, items, createdOrderId);
@@ -1318,44 +1551,68 @@ app.post('/api/order/finalize-payment', verifyUserJWT, async (req, res) => {
             [createdOrderId]
           );
 
+          await logOrderEvent({
+            event: "delivery_success",
+            user_id: userId,
+            order_id: createdOrderId,
+            partner: chosenPartner,
+            delivery_task_id: bookingResult.order_id,
+            tracking_url: bookingResult.tracking_url || null,
+          });
+
           try {
             const cus = normalizePhoneNumber(addr.phone);
             if (cus) {
               await sendWhatsappMessage(
                 cus,
                 "order_created",
-                matter,
+                matter2,
                 "Confirmed",
                 bookingResult.tracking_url
               );
               await whatappMessageToOwner(
                 "919867777860",
                 "order_confirmed_message_to_owner",
-                matter,
+                matter2,
                 cus,
                 `${chosenPartner.toUpperCase()}- ${bookingResult.order_id
                 } ${createdOrderId}`,
                 addr.name,
-                fullAddress,
+                fullAddress2,
                 bookingResult.tracking_url
               );
               await whatappMessageToOwner(
                 "918779121361",
                 "order_confirmed_message_to_owner",
-                matter,
+                matter2,
                 cus,
                 `${chosenPartner.toUpperCase()}- ${bookingResult.order_id
                 } ${createdOrderId}`,
                 addr.name,
-                fullAddress,
+                fullAddress2,
                 bookingResult.tracking_url
               );
+
+              await logOrderEvent({
+                event: "delivery_whatsapp_success",
+                user_id: userId,
+                order_id: createdOrderId,
+                partner: chosenPartner,
+              });
             }
           } catch (waErr) {
             console.error(
               "WhatsApp failed after automatic_cheapest booking:",
               waErr?.message || waErr
             );
+            await logOrderEvent({
+              event: "delivery_whatsapp_failed",
+              user_id: userId,
+              order_id: createdOrderId,
+              partner: chosenPartner,
+              error: waErr.message || String(waErr),
+            });
+
             await query(
               `UPDATE deliveries
                SET error_message = COALESCE(error_message, '') || $1
@@ -1368,6 +1625,14 @@ app.post('/api/order/finalize-payment', verifyUserJWT, async (req, res) => {
           }
         } catch (err) {
           console.error("automatic_cheapest booking error:", err.message);
+          await logOrderEvent({
+            event: "delivery_failed",
+            user_id: userId,
+            order_id: createdOrderId,
+            partner: "automatic",
+            error: err.message || String(err),
+          });
+
           await markPending(
             createdOrderId,
             "automatic",
@@ -1378,6 +1643,13 @@ app.post('/api/order/finalize-payment', verifyUserJWT, async (req, res) => {
       }
 
       // Unknown delivery mode → mark pending
+      await logOrderEvent({
+        event: "delivery_mode_unknown",
+        user_id: userId,
+        order_id: createdOrderId,
+        delivery_mode: deliveryMode,
+      });
+
       await markPending(
         createdOrderId,
         "unknown",
@@ -1388,6 +1660,13 @@ app.post('/api/order/finalize-payment', verifyUserJWT, async (req, res) => {
         "Background error in delivery processing:",
         bgErr?.message || bgErr
       );
+      await logOrderEvent({
+        event: "delivery_background_error",
+        user_id: userId,
+        order_id: createdOrderId,
+        error: bgErr.message || String(bgErr),
+      });
+
       try {
         await query(
           `INSERT INTO deliveries (
@@ -1418,11 +1697,24 @@ app.post('/api/order/finalize-payment', verifyUserJWT, async (req, res) => {
               "If any amount has been debited, please contact support. Refunds are issued within 3-5 working days."
             );
           }
+
+          await logOrderEvent({
+            event: "delivery_background_whatsapp_success",
+            user_id: userId,
+            order_id: createdOrderId,
+          });
         } catch (waErr) {
           console.error(
             "WhatsApp failed after background failure:",
             waErr?.message || waErr
           );
+          await logOrderEvent({
+            event: "delivery_background_whatsapp_failed",
+            user_id: userId,
+            order_id: createdOrderId,
+            error: waErr.message || String(waErr),
+          });
+
           await query(
             `UPDATE deliveries
              SET error_message = COALESCE(error_message, '') || $1
@@ -1435,10 +1727,17 @@ app.post('/api/order/finalize-payment', verifyUserJWT, async (req, res) => {
         }
       } catch (dbErr) {
         console.error("Failed to log background failure to DB:", dbErr);
+        await logOrderEvent({
+          event: "delivery_background_db_log_failed",
+          user_id: userId,
+          order_id: createdOrderId,
+          error: dbErr.message || String(dbErr),
+        });
       }
     }
   })();
 });
+
 
 
 // pool.on("error", (err) => {

@@ -4,6 +4,8 @@ import jwt from 'jsonwebtoken';
 // import pkg from 'pg';
 import 'dotenv/config';
 import axios from 'axios';
+import { getAllOrderLogs } from "./orderLogger.js";
+
 
 const router = express.Router();
 // const { Pool } = pkg;
@@ -124,6 +126,9 @@ router.post('/login', async (req, res) => {
   }
 });
 
+
+
+
 // protect all routes after this middleware
 router.use(verifyAdminJWT);
 
@@ -145,6 +150,32 @@ router.get('/settings/store-status', async (req, res) => {
     res.status(500).json({ error: 'Failed to fetch store status' });
   }
 });
+
+
+router.get("/order-logs", async (req, res) => {
+  const { order_id } = req.query;
+
+  try {
+    let logs = await getAllOrderLogs();
+
+    // If user wants logs for a specific order
+    if (order_id) {
+      logs = logs.filter((l) => String(l.order_id) === String(order_id));
+    }
+
+    // Sort newest → oldest
+    logs.sort((a, b) => b.ts - a.ts);
+
+    res.json({
+      count: logs.length,
+      logs,
+    });
+  } catch (err) {
+    console.error("Failed to read order logs:", err);
+    res.status(500).json({ error: "Failed to read order logs" });
+  }
+});
+
 
 // Store status PUT
 router.put('/settings/store-status', async (req, res) => {
