@@ -3,6 +3,7 @@ import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 // import pkg from 'pg';
 import 'dotenv/config';
+import Razorpay from 'razorpay';
 import axios from 'axios';
 import { getAllOrderLogs } from "./orderLogger.js";
 
@@ -16,6 +17,8 @@ import pool from "./db.js"
 
 // --- JWT Configuration ---
 const JWT_SECRET = process.env.ADMIN_JWT_SECRET || 'your-default-super-secret-key';
+
+
 
 // --- MIDDLEWARE: Verify Admin JWT ---
 export const verifyAdminJWT = (req, res, next) => {
@@ -61,6 +64,11 @@ const whatsapp = axios.create({
     Authorization: `Bearer ${process.env.WHATSAPP_API_KEY || ''}`,
     'Content-Type': 'application/json'
   }
+});
+
+const razorpay = new Razorpay({
+  key_id: process.env.RAZORPAY_KEY_ID,
+  key_secret: process.env.RAZORPAY_KEY_SECRET,
 });
 
 // Sending Whatsapp message functionalities
@@ -129,6 +137,7 @@ router.post('/login', async (req, res) => {
 
 
 
+
 // protect all routes after this middleware
 router.use(verifyAdminJWT);
 
@@ -150,6 +159,16 @@ router.get('/settings/store-status', async (req, res) => {
     res.status(500).json({ error: 'Failed to fetch store status' });
   }
 });
+
+router.get('/getrazorpay', async (req, res)=>{
+  const options={
+    count: 100,
+  }
+  const getOrderDetails = await razorpay.payments.all(options);
+  res.json({
+    getOrderDetails
+  })
+})
 
 
 router.get("/order-logs", async (req, res) => {

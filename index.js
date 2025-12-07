@@ -447,6 +447,7 @@ app.post("/api/payment/create-order", async (req, res) => {
       amount: Math.round(grandTotal * 100), // paisa
       currency: "INR",
       receipt: `receipt_order_${Date.now()}`,
+      // matter: 
     };
 
     const razorpayOrder = await razorpay.orders.create(options);
@@ -547,6 +548,25 @@ app.get("/api/offers/active", async (req, res) => {
   } catch (e) {
     console.error("Error fetching active offers:", e);
     res.status(500).json({ error: "Failed to fetch offers." });
+  }
+});
+
+// Add '/api' to the route path
+app.get('/api/settings/delivery-mode', async (req, res) => {
+  try {
+    const result = await query(
+      "SELECT setting_value FROM store_settings WHERE setting_key = 'delivery_mode'"
+    );
+
+    // Use 'result' instead of 'rows.rows' to match your other endpoints
+    if (result.length === 0) {
+      return res.json({ setting_key: "delivery_mode", setting_value: 'manual' });
+    }
+
+    return res.json(result[0]);
+  } catch (error) {
+    console.error('Error fetching delivery mode:', error);
+    return res.status(500).json({ error: 'Failed to fetch delivery mode' });
   }
 });
 
