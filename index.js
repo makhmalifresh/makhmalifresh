@@ -88,13 +88,13 @@ const borzo = axios.create({
   },
 });
 
-const whatsapp = axios.create({
-  baseURL: process.env.WHATSAPP_BASE_URL || 'https://graph.facebook.com/v22.0/811413942060929',
-  headers: {
-    Authorization: `Bearer ${process.env.WHATSAPP_API_KEY || ''}`,
-    'Content-Type': 'application/json'
-  }
-});
+// const whatsapp = axios.create({
+//   baseURL: process.env.WHATSAPP_BASE_URL || 'https://graph.facebook.com/v22.0/811413942060929',
+//   headers: {
+//     Authorization: `Bearer ${process.env.WHATSAPP_API_KEY || ''}`,
+//     'Content-Type': 'application/json'
+//   }
+// });
 
 // ---------- Helpers ----------
 function normalizePhoneNumber(phone) {
@@ -129,47 +129,47 @@ function normalizePhoneNumber(phone) {
 
 
 // Sending Whatsapp message functionalities
-async function sendWhatsappMessage(phone, template, matter_item, status, tracking_url) {
-  await whatsapp.post('/messages', {
-    messaging_product: 'whatsapp',
-    to: phone,
-    type: 'template',
-    template: {
-      name: template,
-      language: { code: 'en' },
-      components: [{
-        type: 'body', parameters: [
-          { type: "text", text: matter_item },
-          { type: "text", text: status },
-          { type: "text", text: tracking_url },
-        ],
-      }]
-    }
-  });
-}
+// async function sendWhatsappMessage(phone, template, matter_item, status, tracking_url) {
+//   await whatsapp.post('/messages', {
+//     messaging_product: 'whatsapp',
+//     to: phone,
+//     type: 'template',
+//     template: {
+//       name: template,
+//       language: { code: 'en' },
+//       components: [{
+//         type: 'body', parameters: [
+//           { type: "text", text: matter_item },
+//           { type: "text", text: status },
+//           { type: "text", text: tracking_url },
+//         ],
+//       }]
+//     }
+//   });
+// }
 
-async function whatappMessageToOwner(phone, template, matter_item, cus_number, order_id, name, address, tracking) {
-  await whatsapp.post('/messages', {
-    messaging_product: 'whatsapp',
-    to: phone,
-    type: 'template',
-    template: {
-      name: template,
-      language: { code: 'en' },
-      components: [{
-        type: 'body', parameters: [
-          { type: "text", text: order_id },
-          { type: "text", text: name },
-          { type: "text", text: address },
-          { type: "text", text: cus_number },
-          { type: "text", text: matter_item },
-          { type: "text", text: tracking },
+// async function whatappMessageToOwner(phone, template, matter_item, cus_number, order_id, name, address, tracking) {
+//   await whatsapp.post('/messages', {
+//     messaging_product: 'whatsapp',
+//     to: phone,
+//     type: 'template',
+//     template: {
+//       name: template,
+//       language: { code: 'en' },
+//       components: [{
+//         type: 'body', parameters: [
+//           { type: "text", text: order_id },
+//           { type: "text", text: name },
+//           { type: "text", text: address },
+//           { type: "text", text: cus_number },
+//           { type: "text", text: matter_item },
+//           { type: "text", text: tracking },
 
-        ],
-      }]
-    }
-  });
-}
+//         ],
+//       }]
+//     }
+//   });
+// }
 
 // Geocode using LocationIQ (free-ish). Requires LOCATIONIQ_API_KEY env var.
 async function geocodeAddressFree(address) {
@@ -940,30 +940,30 @@ app.post('/api/order/finalize-payment', verifyUserJWT, async (req, res) => {
       grand_total,
     });
 
-    const preAlertText =
-      "Order NOT in DB yet. This pre-alert is sent right after successful payment to make sure no order is missed.";
+    // const preAlertText =
+    //   "Order NOT in DB yet. This pre-alert is sent right after successful payment to make sure no order is missed.";
 
-    await whatappMessageToOwner(
-      "919867777860",
-      "order_confirmed_message_to_owner",
-      matter,
-      address.phone,
-      preAlertText,
-      address.name,
-      fullAddress,
-      "If you receive a 2nd message with the same details, the order is CONFIRMED and stored. If not, please check manually."
-    );
+    // await whatappMessageToOwner(
+    //   "919867777860",
+    //   "order_confirmed_message_to_owner",
+    //   matter,
+    //   address.phone,
+    //   preAlertText,
+    //   address.name,
+    //   fullAddress,
+    //   "If you receive a 2nd message with the same details, the order is CONFIRMED and stored. If not, please check manually."
+    // );
 
-    await whatappMessageToOwner(
-      "919321561224",
-      "order_confirmed_message_to_owner",
-      matter,
-      address.phone,
-      preAlertText,
-      address.name,
-      fullAddress,
-      "If you receive a 2nd message with the same details, the order is CONFIRMED and stored. If not, please check manually."
-    );
+    // await whatappMessageToOwner(
+    //   "919321561224",
+    //   "order_confirmed_message_to_owner",
+    //   matter,
+    //   address.phone,
+    //   preAlertText,
+    //   address.name,
+    //   fullAddress,
+    //   "If you receive a 2nd message with the same details, the order is CONFIRMED and stored. If not, please check manually."
+    // );
 
     await logOrderEvent({
       event: "prealert_whatsapp_sent",
@@ -1157,35 +1157,35 @@ app.post('/api/order/finalize-payment', verifyUserJWT, async (req, res) => {
             )
             .join(", ");
 
-          if (cus) {
-            await sendWhatsappMessage(
-              cus,
-              "order_created",
-              matter,
-              "PENDING",
-              "You’ll receive a WhatsApp update with a tracking link once your order is CONFIRMED."
-            );
-            await whatappMessageToOwner(
-              "919867777860",
-              "order_confirmed_message_to_owner",
-              matter,
-              address.phone,
-              "PENDING- BOOK ORDER MANUALLY",
-              address.name,
-              fullAddress,
-              "Please Manually Book Order and Resolve in Admin Panel"
-            );
-            await whatappMessageToOwner(
-              "918779121361",
-              "order_confirmed_message_to_owner",
-              matter,
-              address.phone,
-              "PENDING- BOOK ORDER MANUALLY",
-              address.name,
-              fullAddress,
-              "Please Manually Book Order and Resolve in Admin Panel"
-            );
-          }
+          // if (cus) {
+          //   await sendWhatsappMessage(
+          //     cus,
+          //     "order_created",
+          //     matter,
+          //     "PENDING",
+          //     "You’ll receive a WhatsApp update with a tracking link once your order is CONFIRMED."
+          //   );
+          //   await whatappMessageToOwner(
+          //     "919867777860",
+          //     "order_confirmed_message_to_owner",
+          //     matter,
+          //     address.phone,
+          //     "PENDING- BOOK ORDER MANUALLY",
+          //     address.name,
+          //     fullAddress,
+          //     "Please Manually Book Order and Resolve in Admin Panel"
+          //   );
+          //   await whatappMessageToOwner(
+          //     "918779121361",
+          //     "order_confirmed_message_to_owner",
+          //     matter,
+          //     address.phone,
+          //     "PENDING- BOOK ORDER MANUALLY",
+          //     address.name,
+          //     fullAddress,
+          //     "Please Manually Book Order and Resolve in Admin Panel"
+          //   );
+          // }
 
           await logOrderEvent({
             event: "delivery_mark_pending_whatsapp_ok",
@@ -1306,33 +1306,33 @@ app.post('/api/order/finalize-payment', verifyUserJWT, async (req, res) => {
           try {
             const cus = normalizePhoneNumber(addr.phone);
             if (cus) {
-              await sendWhatsappMessage(
-                cus,
-                "order_created",
-                matter,
-                "Confirmed",
-                bk.tracking_url
-              );
-              await whatappMessageToOwner(
-                "919867777860",
-                "order_confirmed_message_to_owner",
-                matter,
-                cus,
-                `BORZO- ${full_orderId}`,
-                addr.name,
-                fullAddress,
-                bk.tracking_url
-              );
-              await whatappMessageToOwner(
-                "918779121361",
-                "order_confirmed_message_to_owner",
-                matter,
-                cus,
-                `BORZO- ${full_orderId}`,
-                addr.name,
-                fullAddress,
-                bk.tracking_url
-              );
+              // await sendWhatsappMessage(
+              //   cus,
+              //   "order_created",
+              //   matter,
+              //   "Confirmed",
+              //   bk.tracking_url
+              // );
+              // await whatappMessageToOwner(
+              //   "919867777860",
+              //   "order_confirmed_message_to_owner",
+              //   matter,
+              //   cus,
+              //   `BORZO- ${full_orderId}`,
+              //   addr.name,
+              //   fullAddress,
+              //   bk.tracking_url
+              // );
+              // await whatappMessageToOwner(
+              //   "918779121361",
+              //   "order_confirmed_message_to_owner",
+              //   matter,
+              //   cus,
+              //   `BORZO- ${full_orderId}`,
+              //   addr.name,
+              //   fullAddress,
+              //   bk.tracking_url
+              // );
 
               await logOrderEvent({
                 event: "delivery_whatsapp_success",
@@ -1439,33 +1439,33 @@ app.post('/api/order/finalize-payment', verifyUserJWT, async (req, res) => {
           try {
             const cus = normalizePhoneNumber(addr.phone);
             if (cus) {
-              await sendWhatsappMessage(
-                cus,
-                "order_created",
-                matter,
-                "Confirmed",
-                bk.tracking_url
-              );
-              await whatappMessageToOwner(
-                "919867777860",
-                "order_confirmed_message_to_owner",
-                matter,
-                cus,
-                `PORTER- ${full_orderId}`,
-                addr.name,
-                fullAddress,
-                bk.tracking_url
-              );
-              await whatappMessageToOwner(
-                "918779121361",
-                "order_confirmed_message_to_owner",
-                matter,
-                cus,
-                `PORTER- ${full_orderId}`,
-                addr.name,
-                fullAddress,
-                bk.tracking_url
-              );
+              // await sendWhatsappMessage(
+              //   cus,
+              //   "order_created",
+              //   matter,
+              //   "Confirmed",
+              //   bk.tracking_url
+              // );
+              // await whatappMessageToOwner(
+              //   "919867777860",
+              //   "order_confirmed_message_to_owner",
+              //   matter,
+              //   cus,
+              //   `PORTER- ${full_orderId}`,
+              //   addr.name,
+              //   fullAddress,
+              //   bk.tracking_url
+              // );
+              // await whatappMessageToOwner(
+              //   "918779121361",
+              //   "order_confirmed_message_to_owner",
+              //   matter,
+              //   cus,
+              //   `PORTER- ${full_orderId}`,
+              //   addr.name,
+              //   fullAddress,
+              //   bk.tracking_url
+              // );
 
               await logOrderEvent({
                 event: "delivery_whatsapp_success",
@@ -1583,35 +1583,35 @@ app.post('/api/order/finalize-payment', verifyUserJWT, async (req, res) => {
           try {
             const cus = normalizePhoneNumber(addr.phone);
             if (cus) {
-              await sendWhatsappMessage(
-                cus,
-                "order_created",
-                matter2,
-                "Confirmed",
-                bookingResult.tracking_url
-              );
-              await whatappMessageToOwner(
-                "919867777860",
-                "order_confirmed_message_to_owner",
-                matter2,
-                cus,
-                `${chosenPartner.toUpperCase()}- ${bookingResult.order_id
-                } ${createdOrderId}`,
-                addr.name,
-                fullAddress2,
-                bookingResult.tracking_url
-              );
-              await whatappMessageToOwner(
-                "918779121361",
-                "order_confirmed_message_to_owner",
-                matter2,
-                cus,
-                `${chosenPartner.toUpperCase()}- ${bookingResult.order_id
-                } ${createdOrderId}`,
-                addr.name,
-                fullAddress2,
-                bookingResult.tracking_url
-              );
+              // await sendWhatsappMessage(
+              //   cus,
+              //   "order_created",
+              //   matter2,
+              //   "Confirmed",
+              //   bookingResult.tracking_url
+              // );
+              // await whatappMessageToOwner(
+              //   "919867777860",
+              //   "order_confirmed_message_to_owner",
+              //   matter2,
+              //   cus,
+              //   `${chosenPartner.toUpperCase()}- ${bookingResult.order_id
+              //   } ${createdOrderId}`,
+              //   addr.name,
+              //   fullAddress2,
+              //   bookingResult.tracking_url
+              // );
+              // await whatappMessageToOwner(
+              //   "918779121361",
+              //   "order_confirmed_message_to_owner",
+              //   matter2,
+              //   cus,
+              //   `${chosenPartner.toUpperCase()}- ${bookingResult.order_id
+              //   } ${createdOrderId}`,
+              //   addr.name,
+              //   fullAddress2,
+              //   bookingResult.tracking_url
+              // );
 
               await logOrderEvent({
                 event: "delivery_whatsapp_success",
@@ -1708,15 +1708,15 @@ app.post('/api/order/finalize-payment', verifyUserJWT, async (req, res) => {
 
         try {
           const cus = normalizePhoneNumber(address.phone);
-          if (cus) {
-            await sendWhatsappMessage(
-              cus,
-              "order_created",
-              "Please Contact Support for verification",
-              "Pending. Please contact support: 9867777860",
-              "If any amount has been debited, please contact support. Refunds are issued within 3-5 working days."
-            );
-          }
+          // if (cus) {
+          //   await sendWhatsappMessage(
+          //     cus,
+          //     "order_created",
+          //     "Please Contact Support for verification",
+          //     "Pending. Please contact support: 9867777860",
+          //     "If any amount has been debited, please contact support. Refunds are issued within 3-5 working days."
+          //   );
+          // }
 
           await logOrderEvent({
             event: "delivery_background_whatsapp_success",
